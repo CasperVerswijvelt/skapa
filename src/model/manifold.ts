@@ -136,7 +136,7 @@ async function frontCutoutCrossSection(
   const r = Math.min(cutoutRadius, maxR);
 
   // Top fillet radius: clamped so outward arcs don't extend past box edge
-  const topR = Math.min(r, wall + sideOffset);
+  const topR = Math.min(r, sideOffset);
 
   if (r <= 0) {
     // No rounding, simple rectangle — extend past top for clean boolean cut
@@ -233,7 +233,7 @@ async function frontCutout(
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
   return cs
-    .extrude(radius + 2)
+    .extrude(Math.max(radius, wall) + 2)
     .rotate([90, 0, 0])
     .translate([0, depth / 2 + 1, 0]);
 }
