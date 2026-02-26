@@ -22,28 +22,32 @@ class ManifoldModule {
   }
 }
 
-// Generates a CCW arc (quarter)
+// Extra length beyond the box edge for clean boolean subtraction
+const BOOLEAN_OVERSHOOT = 1;
+
+// Generates an arc from startAngle to endAngle (CCW when endAngle > startAngle)
 function generateArc({
   center,
   radius,
+  startAngle = 0,
+  endAngle = Math.PI / 2,
+  segments = 10,
 }: {
   center: Vec2;
   radius: number;
+  startAngle?: number;
+  endAngle?: number;
+  segments?: number;
 }): Vec2[] {
-  // Number of segments (total points - 2)
-  const N_SEGMENTS = 10;
-  const N_POINTS = N_SEGMENTS + 2;
-
+  const nPoints = segments + 2;
   const pts: Vec2[] = [];
-  for (let i = 0; i < N_POINTS; i++) {
-    const angle = (i * (Math.PI / 2)) / (N_POINTS - 1);
-
+  for (let i = 0; i < nPoints; i++) {
+    const angle = startAngle + (i * (endAngle - startAngle)) / (nPoints - 1);
     pts.push([
       center[0] + radius * Math.cos(angle),
       center[1] + radius * Math.sin(angle),
     ]);
   }
-
   return pts;
 }
 
@@ -143,8 +147,8 @@ async function frontCutoutCrossSection(
     const vertices: Vec2[] = [
       [left, bot],
       [right, bot],
-      [right, top + 1],
-      [left, top + 1],
+      [right, top + BOOLEAN_OVERSHOOT],
+      [left, top + BOOLEAN_OVERSHOOT],
     ];
     return new CrossSection(vertices);
   }
@@ -155,55 +159,47 @@ async function frontCutoutCrossSection(
   const vertices: Vec2[] = [];
 
   // Bottom-left rounded corner (arc from PI to 3PI/2)
-  const blCenter: Vec2 = [left + r, bot + r];
-  for (let i = 0; i <= 10; i++) {
-    const angle = Math.PI + (i * (Math.PI / 2)) / 10;
-    vertices.push([
-      blCenter[0] + r * Math.cos(angle),
-      blCenter[1] + r * Math.sin(angle),
-    ]);
-  }
+  vertices.push(...generateArc({
+    center: [left + r, bot + r],
+    radius: r,
+    startAngle: Math.PI,
+    endAngle: (3 * Math.PI) / 2,
+  }));
 
   // Bottom-right rounded corner (arc from 3PI/2 to 2PI)
-  const brCenter: Vec2 = [right - r, bot + r];
-  for (let i = 0; i <= 10; i++) {
-    const angle = (3 * Math.PI) / 2 + (i * (Math.PI / 2)) / 10;
-    vertices.push([
-      brCenter[0] + r * Math.cos(angle),
-      brCenter[1] + r * Math.sin(angle),
-    ]);
-  }
+  vertices.push(...generateArc({
+    center: [right - r, bot + r],
+    radius: r,
+    startAngle: (3 * Math.PI) / 2,
+    endAngle: 2 * Math.PI,
+  }));
 
   // Top-right fillet arc: center inside wall at (right+topR, top-topR)
   // CW from PI to PI/2 for tangent continuity with the straight right edge
   if (topR > 0) {
-    const trCenter: Vec2 = [right + topR, top - topR];
-    for (let i = 0; i <= 10; i++) {
-      const angle = Math.PI - (i * (Math.PI / 2)) / 10;
-      vertices.push([
-        trCenter[0] + topR * Math.cos(angle),
-        trCenter[1] + topR * Math.sin(angle),
-      ]);
-    }
+    vertices.push(...generateArc({
+      center: [right + topR, top - topR],
+      radius: topR,
+      startAngle: Math.PI,
+      endAngle: Math.PI / 2,
+    }));
 
     // Chimney extension past box top
-    vertices.push([right + topR, top + 1]);
-    vertices.push([left - topR, top + 1]);
+    vertices.push([right + topR, top + BOOLEAN_OVERSHOOT]);
+    vertices.push([left - topR, top + BOOLEAN_OVERSHOOT]);
 
     // Top-left fillet arc: center inside wall at (left-topR, top-topR)
     // CW from PI/2 to 0 for tangent continuity with the straight left edge
-    const tlCenter: Vec2 = [left - topR, top - topR];
-    for (let i = 0; i <= 10; i++) {
-      const angle = Math.PI / 2 - (i * (Math.PI / 2)) / 10;
-      vertices.push([
-        tlCenter[0] + topR * Math.cos(angle),
-        tlCenter[1] + topR * Math.sin(angle),
-      ]);
-    }
+    vertices.push(...generateArc({
+      center: [left - topR, top - topR],
+      radius: topR,
+      startAngle: Math.PI / 2,
+      endAngle: 0,
+    }));
   } else {
     // No top fillet, straight chimney extension
-    vertices.push([right, top + 1]);
-    vertices.push([left, top + 1]);
+    vertices.push([right, top + BOOLEAN_OVERSHOOT]);
+    vertices.push([left, top + BOOLEAN_OVERSHOOT]);
   }
 
   return new CrossSection(vertices);
@@ -233,9 +229,9 @@ async function frontCutout(
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
   return cs
-    .extrude(Math.max(radius, wall) + 2)
+    .extrude(Math.max(radius, wall) + 2 * BOOLEAN_OVERSHOOT)
     .rotate([90, 0, 0])
-    .translate([0, depth / 2 + 1, 0]);
+    .translate([0, depth / 2 + BOOLEAN_OVERSHOOT, 0]);
 }
 
 export type OpenFrontParams = {

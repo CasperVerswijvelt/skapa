@@ -278,10 +278,7 @@ const openFrontAnimations = {
   bottomOffset: new Animate(START_OPEN_FRONT_BOTTOM_OFFSET),
   cutoutRadius: new Animate(START_OPEN_FRONT_RADIUS),
 };
-let openFrontAnimEnabled = false;
-
-openFrontEnabled.addListener((enabled) => {
-  openFrontAnimEnabled = enabled;
+openFrontEnabled.addListener(() => {
   reloadModelNeeded = true;
 });
 
@@ -359,30 +356,37 @@ openFrontSubControls.className = "open-front-sub-controls";
 openFrontSubControls.style.display = "none";
 advanced.content.append(openFrontSubControls);
 
+const initialMaxSideOffset = Math.floor((START_WIDTH - 2 * START_WALL) / 2) - 1;
+const initialMaxBottomOffset = Math.floor(START_HEIGHT - START_BOTTOM) - 1;
+const initialMaxCutoutRadius = Math.floor(Math.min(
+  (START_WIDTH - 2 * START_WALL - 2 * START_OPEN_FRONT_SIDE_OFFSET) / 2,
+  (START_HEIGHT - START_BOTTOM - START_OPEN_FRONT_BOTTOM_OFFSET) / 2,
+)) - 1;
+
 const openFrontSideOffsetControl = rangeControl("open-front-side-offset", {
   name: "Side offset",
   min: String(MIN_OPEN_FRONT_OFFSET),
-  max: "0",
+  max: String(initialMaxSideOffset),
   sliderMin: String(MIN_OPEN_FRONT_OFFSET),
-  sliderMax: "0",
+  sliderMax: String(initialMaxSideOffset),
 });
 openFrontSubControls.append(openFrontSideOffsetControl.wrapper);
 
 const openFrontBottomOffsetControl = rangeControl("open-front-bottom-offset", {
   name: "Bottom offset",
   min: String(MIN_OPEN_FRONT_OFFSET),
-  max: "0",
+  max: String(initialMaxBottomOffset),
   sliderMin: String(MIN_OPEN_FRONT_OFFSET),
-  sliderMax: "0",
+  sliderMax: String(initialMaxBottomOffset),
 });
 openFrontSubControls.append(openFrontBottomOffsetControl.wrapper);
 
 const openFrontRadiusControl = rangeControl("open-front-radius", {
   name: "Radius",
   min: String(MIN_OPEN_FRONT_RADIUS),
-  max: "0",
+  max: String(initialMaxCutoutRadius),
   sliderMin: String(MIN_OPEN_FRONT_RADIUS),
-  sliderMax: "0",
+  sliderMax: String(initialMaxCutoutRadius),
 });
 openFrontSubControls.append(openFrontRadiusControl.wrapper);
 
@@ -439,137 +443,84 @@ levels.addListener((n) => {
 
 inputs.levelsMinus.addEventListener("click", () => {
   const n = levels.latest - 1;
-  levels.send(Math.max(1, Math.min(n, 5)));
+  levels.send(Math.max(MIN_LEVELS, Math.min(n, MAX_LEVELS)));
 });
 
-// width
-(
-  [
-    [inputs.width, "change"],
-    [inputs.widthRange, "input"],
-  ] as const
-).forEach(([input, evnt]) => {
-  innerWidth.addListener((width) => {
-    input.value = `${width}`;
-  });
-  input.addEventListener(evnt, () => {
-    const outer = parseInt(input.value) + 2 * modelDimensions.wall.latest;
-    if (!Number.isNaN(outer))
-      modelDimensions.width.send(Math.max(outer, MIN_WIDTH));
-  });
-});
+// Binds a range+number control pair to a Dyn, syncing display and handling input events.
+function bindRangeControl(
+  control: { input: HTMLInputElement; range: HTMLInputElement },
+  target: Dyn<number>,
+  opts: {
+    display?: Dyn<number>; // Dyn to read display values from (defaults to target)
+    min: number;
+    max: number | Dyn<number>;
+    fromInput?: (val: number) => number; // transform input value before sending to target
+  },
+) {
+  const display = opts.display ?? target;
+  const transform = opts.fromInput ?? ((v: number) => v);
+  const getMax =
+    typeof opts.max === "number" ? () => opts.max as number : () => (opts.max as Dyn<number>).latest;
 
-// depth
-(
-  [
-    [inputs.depth, "change"],
-    [inputs.depthRange, "input"],
-  ] as const
-).forEach(([input, evnt]) => {
-  innerDepth.addListener((depth) => {
-    input.value = `${depth}`;
+  // Sync display → both inputs
+  display.addListener((val) => {
+    const s = `${val}`;
+    control.input.value = s;
+    control.range.value = s;
   });
-  input.addEventListener(evnt, () => {
-    const outer = parseInt(input.value) + 2 * modelDimensions.wall.latest;
-    if (!Number.isNaN(outer))
-      modelDimensions.depth.send(Math.max(outer, MIN_DEPTH));
-  });
-});
 
-// radius
-(
-  [
-    [inputs.radius, "change"],
-    [inputs.radiusRange, "input"],
-  ] as const
-).forEach(([input, evnt]) => {
-  modelDimensions.radius.addListener((radius) => {
-    input.value = `${radius}`;
-  });
-  input.addEventListener(evnt, () => {
-    const val = parseInt(input.value);
+  // Handle input events
+  const onInput = (el: HTMLInputElement) => () => {
+    const val = parseInt(el.value);
     if (!Number.isNaN(val))
-      modelDimensions.radius.send(
-        Math.max(MIN_RADIUS, Math.min(val, MAX_RADIUS)),
-      );
-  });
+      target.send(Math.max(opts.min, Math.min(transform(val), getMax())));
+  };
+  control.input.addEventListener("change", onInput(control.input));
+  control.range.addEventListener("input", onInput(control.range));
+
+  // Dynamic max: update HTML attributes when max changes
+  if (typeof opts.max !== "number") {
+    opts.max.addListener((max) => {
+      const s = String(max);
+      control.input.max = s;
+      control.range.max = s;
+      control.range.value = String(display.latest);
+    });
+  }
+}
+
+bindRangeControl(widthControl, modelDimensions.width, {
+  display: innerWidth,
+  min: MIN_WIDTH,
+  max: MAX_WIDTH,
+  fromInput: (val) => val + 2 * modelDimensions.wall.latest,
 });
 
-// open front side offset
-(
-  [
-    [inputs.openFrontSideOffset, "change"],
-    [inputs.openFrontSideOffsetRange, "input"],
-  ] as const
-).forEach(([input, evnt]) => {
-  openFrontDimensions.sideOffset.addListener((offset) => {
-    input.value = `${offset}`;
-  });
-  input.addEventListener(evnt, () => {
-    const val = parseInt(input.value);
-    if (!Number.isNaN(val))
-      openFrontDimensions.sideOffset.send(
-        Math.max(MIN_OPEN_FRONT_OFFSET, Math.min(val, maxSideOffset.latest)),
-      );
-  });
+bindRangeControl(depthControl, modelDimensions.depth, {
+  display: innerDepth,
+  min: MIN_DEPTH,
+  max: MAX_DEPTH,
+  fromInput: (val) => val + 2 * modelDimensions.wall.latest,
 });
 
-// open front bottom offset
-(
-  [
-    [inputs.openFrontBottomOffset, "change"],
-    [inputs.openFrontBottomOffsetRange, "input"],
-  ] as const
-).forEach(([input, evnt]) => {
-  openFrontDimensions.bottomOffset.addListener((offset) => {
-    input.value = `${offset}`;
-  });
-  input.addEventListener(evnt, () => {
-    const val = parseInt(input.value);
-    if (!Number.isNaN(val))
-      openFrontDimensions.bottomOffset.send(
-        Math.max(MIN_OPEN_FRONT_OFFSET, Math.min(val, maxBottomOffset.latest)),
-      );
-  });
+bindRangeControl(radiusControl, modelDimensions.radius, {
+  min: MIN_RADIUS,
+  max: MAX_RADIUS,
 });
 
-// open front cutout radius
-(
-  [
-    [inputs.openFrontRadius, "change"],
-    [inputs.openFrontRadiusRange, "input"],
-  ] as const
-).forEach(([input, evnt]) => {
-  openFrontDimensions.cutoutRadius.addListener((r) => {
-    input.value = `${r}`;
-  });
-  input.addEventListener(evnt, () => {
-    const val = parseInt(input.value);
-    if (!Number.isNaN(val))
-      openFrontDimensions.cutoutRadius.send(
-        Math.max(MIN_OPEN_FRONT_RADIUS, Math.min(val, maxCutoutRadius.latest)),
-      );
-  });
+bindRangeControl(openFrontSideOffsetControl, openFrontDimensions.sideOffset, {
+  min: MIN_OPEN_FRONT_OFFSET,
+  max: maxSideOffset,
 });
 
-// Dynamic max listeners for slider/input elements
-maxSideOffset.addListener((max) => {
-  const s = String(max);
-  inputs.openFrontSideOffset.max = s;
-  inputs.openFrontSideOffsetRange.max = s;
-  inputs.openFrontSideOffsetRange.value = String(openFrontDimensions.sideOffset.latest);
+bindRangeControl(openFrontBottomOffsetControl, openFrontDimensions.bottomOffset, {
+  min: MIN_OPEN_FRONT_OFFSET,
+  max: maxBottomOffset,
 });
-maxBottomOffset.addListener((max) => {
-  const s = String(max);
-  inputs.openFrontBottomOffset.max = s;
-  inputs.openFrontBottomOffsetRange.max = s;
-  inputs.openFrontBottomOffsetRange.value = String(openFrontDimensions.bottomOffset.latest);
-});
-maxCutoutRadius.addListener((max) => {
-  const s = String(max);
-  inputs.openFrontRadius.max = s;
-  inputs.openFrontRadiusRange.max = s;
-  inputs.openFrontRadiusRange.value = String(openFrontDimensions.cutoutRadius.latest);
+
+bindRangeControl(openFrontRadiusControl, openFrontDimensions.cutoutRadius, {
+  min: MIN_OPEN_FRONT_RADIUS,
+  max: maxCutoutRadius,
 });
 
 // Add select-all on input click
@@ -781,7 +732,7 @@ function loop(nowMillis: DOMHighResTimeStamp) {
       animations["radius"].current,
       animations["wall"].current,
       animations["bottom"].current,
-      openFrontAnimEnabled
+      openFrontEnabled.latest
         ? {
             sideOffset: openFrontAnimations.sideOffset.current,
             bottomOffset: openFrontAnimations.bottomOffset.current,
@@ -791,6 +742,8 @@ function loop(nowMillis: DOMHighResTimeStamp) {
     ).then(() => {
       modelLoadStarted = undefined;
       centerCameraNeeded = true;
+    }).catch(() => {
+      modelLoadStarted = undefined;
     });
   }
 
