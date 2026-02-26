@@ -113,6 +113,137 @@ export async function clips(
   return [clipR.trimByPlane(n, 0), clipL.trimByPlane(n, 0)];
 }
 
+// Creates a 2D cross-section for the front cutout (U-shaped opening viewed from front)
+async function frontCutoutCrossSection(
+  width: number,
+  height: number,
+  radius: number,
+  bottom: number,
+  sideOffset: number,
+  bottomOffset: number,
+  cutoutRadius: number,
+): Promise<CrossSection> {
+  const { CrossSection } = await ManifoldModule.get();
+
+  // Side edges align with the flat portion of the front face (inset by box corner radius)
+  const left = -width / 2 + radius + sideOffset;
+  const right = width / 2 - radius - sideOffset;
+  const bot = bottom + bottomOffset;
+  const top = height; // actual box height (extension strip handles the overshoot)
+
+  // Clamp cutout radius to half the opening width/height
+  const maxR = Math.min((right - left) / 2, (top - bot) / 2);
+  const r = Math.min(cutoutRadius, maxR);
+
+  // Top fillet radius: clamped so outward arcs don't extend past box edge
+  const topR = Math.min(r, radius + sideOffset);
+
+  if (r <= 0) {
+    // No rounding, simple rectangle — extend past top for clean boolean cut
+    const vertices: Vec2[] = [
+      [left, bot],
+      [right, bot],
+      [right, top + 1],
+      [left, top + 1],
+    ];
+    return new CrossSection(vertices);
+  }
+
+  // Build the shape as a single CCW polygon: rounded corners at all 4 corners,
+  // with a rectangular "chimney" extension between the top arcs that extends
+  // past the box top for a clean boolean cut.
+  const vertices: Vec2[] = [];
+
+  // Bottom-left rounded corner (arc from PI to 3PI/2)
+  const blCenter: Vec2 = [left + r, bot + r];
+  for (let i = 0; i <= 10; i++) {
+    const angle = Math.PI + (i * (Math.PI / 2)) / 10;
+    vertices.push([
+      blCenter[0] + r * Math.cos(angle),
+      blCenter[1] + r * Math.sin(angle),
+    ]);
+  }
+
+  // Bottom-right rounded corner (arc from 3PI/2 to 2PI)
+  const brCenter: Vec2 = [right - r, bot + r];
+  for (let i = 0; i <= 10; i++) {
+    const angle = (3 * Math.PI) / 2 + (i * (Math.PI / 2)) / 10;
+    vertices.push([
+      brCenter[0] + r * Math.cos(angle),
+      brCenter[1] + r * Math.sin(angle),
+    ]);
+  }
+
+  // Top-right fillet arc: center inside wall at (right+topR, top-topR)
+  // CW from PI to PI/2 for tangent continuity with the straight right edge
+  if (topR > 0) {
+    const trCenter: Vec2 = [right + topR, top - topR];
+    for (let i = 0; i <= 10; i++) {
+      const angle = Math.PI - (i * (Math.PI / 2)) / 10;
+      vertices.push([
+        trCenter[0] + topR * Math.cos(angle),
+        trCenter[1] + topR * Math.sin(angle),
+      ]);
+    }
+
+    // Chimney extension past box top
+    vertices.push([right + topR, top + 1]);
+    vertices.push([left - topR, top + 1]);
+
+    // Top-left fillet arc: center inside wall at (left-topR, top-topR)
+    // CW from PI/2 to 0 for tangent continuity with the straight left edge
+    const tlCenter: Vec2 = [left - topR, top - topR];
+    for (let i = 0; i <= 10; i++) {
+      const angle = Math.PI / 2 - (i * (Math.PI / 2)) / 10;
+      vertices.push([
+        tlCenter[0] + topR * Math.cos(angle),
+        tlCenter[1] + topR * Math.sin(angle),
+      ]);
+    }
+  } else {
+    // No top fillet, straight chimney extension
+    vertices.push([right, top + 1]);
+    vertices.push([left, top + 1]);
+  }
+
+  return new CrossSection(vertices);
+}
+
+// Creates a 3D cutout solid for subtracting from the front wall
+async function frontCutout(
+  height: number,
+  width: number,
+  depth: number,
+  radius: number,
+  wall: number,
+  bottom: number,
+  sideOffset: number,
+  bottomOffset: number,
+  cutoutRadius: number,
+): Promise<Manifold> {
+  const cs = await frontCutoutCrossSection(
+    width,
+    height,
+    radius,
+    bottom,
+    sideOffset,
+    bottomOffset,
+    cutoutRadius,
+  );
+
+  // Extrude along Z, then rotate so it goes along -Y (into the front wall)
+  return cs
+    .extrude(wall + 2)
+    .rotate([90, 0, 0])
+    .translate([0, depth / 2 + 1, 0]);
+}
+
+export type OpenFrontParams = {
+  sideOffset: number;
+  bottomOffset: number;
+  cutoutRadius: number;
+};
+
 // The box (without clips) with origin in the middle of the bottom face
 export async function base(
   height: number,
@@ -121,6 +252,7 @@ export async function base(
   radius: number,
   wall: number,
   bottom: number,
+  openFront?: OpenFrontParams,
 ): Promise<Manifold> {
   const innerRadius = Math.max(0, radius - wall);
   const outer = (await roundedRectangle([width, depth], radius)).extrude(
@@ -132,7 +264,24 @@ export async function base(
     .extrude(height - bottom)
     .translate([0, 0, bottom]);
 
-  return outer.subtract(innerNeg);
+  let result = outer.subtract(innerNeg);
+
+  if (openFront) {
+    const cutout = await frontCutout(
+      height,
+      width,
+      depth,
+      radius,
+      wall,
+      bottom,
+      openFront.sideOffset,
+      openFront.bottomOffset,
+      openFront.cutoutRadius,
+    );
+    result = result.subtract(cutout);
+  }
+
+  return result;
 }
 
 // The box (with clips), with origin where clips meet the box
@@ -143,6 +292,7 @@ export async function box(
   radius: number,
   wall: number,
   bottom: number,
+  openFront?: OpenFrontParams,
 ): Promise<Manifold> {
   const padding = 5; /* mm */
   const W = width - 2 * radius - 2 * padding; // Working area
@@ -157,7 +307,7 @@ export async function box(
   const gh = 40;
   const NV = Math.floor(H / gh + 1);
 
-  let res = await base(height, width, depth, radius, wall, bottom);
+  let res = await base(height, width, depth, radius, wall, bottom, openFront);
 
   for (let i = 0; i < N; i++) {
     for (let j = 0; j < NV; j++) {
