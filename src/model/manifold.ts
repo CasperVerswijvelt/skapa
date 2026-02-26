@@ -117,7 +117,7 @@ export async function clips(
 async function frontCutoutCrossSection(
   width: number,
   height: number,
-  radius: number,
+  wall: number,
   bottom: number,
   sideOffset: number,
   bottomOffset: number,
@@ -125,9 +125,9 @@ async function frontCutoutCrossSection(
 ): Promise<CrossSection> {
   const { CrossSection } = await ManifoldModule.get();
 
-  // Side edges align with the flat portion of the front face (inset by box corner radius)
-  const left = -width / 2 + radius + sideOffset;
-  const right = width / 2 - radius - sideOffset;
+  // Side edges align with the inner wall (inset by wall thickness)
+  const left = -width / 2 + wall + sideOffset;
+  const right = width / 2 - wall - sideOffset;
   const bot = bottom + bottomOffset;
   const top = height; // actual box height (extension strip handles the overshoot)
 
@@ -136,7 +136,7 @@ async function frontCutoutCrossSection(
   const r = Math.min(cutoutRadius, maxR);
 
   // Top fillet radius: clamped so outward arcs don't extend past box edge
-  const topR = Math.min(r, radius + sideOffset);
+  const topR = Math.min(r, wall + sideOffset);
 
   if (r <= 0) {
     // No rounding, simple rectangle — extend past top for clean boolean cut
@@ -224,7 +224,7 @@ async function frontCutout(
   const cs = await frontCutoutCrossSection(
     width,
     height,
-    radius,
+    wall,
     bottom,
     sideOffset,
     bottomOffset,
@@ -233,7 +233,7 @@ async function frontCutout(
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
   return cs
-    .extrude(wall + 2)
+    .extrude(radius + 2)
     .rotate([90, 0, 0])
     .translate([0, depth / 2 + 1, 0]);
 }
