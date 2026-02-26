@@ -84,6 +84,9 @@ const innerDepth = Dyn.sequence([
   modelDimensions.depth,
 ] as const).map(([wall, depth]) => depth - 2 * wall);
 
+// Clip placement state
+const cornerClipsOnly = new Dyn(true);
+
 // Open front state
 const openFrontEnabled = new Dyn(false);
 const openFrontDimensions = {
@@ -178,8 +181,9 @@ async function reloadModel(
   wall: number,
   bottom: number,
   openFront?: OpenFrontParams,
+  cornerClips?: boolean,
 ) {
-  const model = await box(height, width, depth, radius, wall, bottom, openFront);
+  const model = await box(height, width, depth, radius, wall, bottom, openFront, cornerClips);
   const geometry = mesh2geometry(model);
   geometry.computeVertexNormals(); // Make sure the geometry has normals
   mesh.geometry = geometry;
@@ -195,10 +199,11 @@ Dyn.sequence([
   modelDimensions.wall,
   modelDimensions.bottom,
   openFrontConfig,
-] as const).addListener(([h, w, d, r, wa, bo, of]) => {
+  cornerClipsOnly,
+] as const).addListener(([h, w, d, r, wa, bo, of, cc]) => {
   const suffix = of ? "-open" : "";
   const filename = `skapa-${w}-${d}-${h}${suffix}.3mf`;
-  tmfLoader.load(box(h, w, d, r, wa, bo, of), filename);
+  tmfLoader.load(box(h, w, d, r, wa, bo, of, cc), filename);
 });
 
 /// RENDER
@@ -281,6 +286,9 @@ const openFrontAnimations = {
 openFrontEnabled.addListener(() => {
   reloadModelNeeded = true;
 });
+cornerClipsOnly.addListener(() => {
+  reloadModelNeeded = true;
+});
 
 openFrontDimensions.sideOffset.addListener((val) => {
   openFrontAnimations.sideOffset.startAnimationTo(val);
@@ -345,6 +353,15 @@ const radiusControl = rangeControl("radius", {
   sliderMax: String(MAX_RADIUS),
 });
 advanced.content.append(radiusControl.wrapper);
+
+// Corner clips toggle (inside advanced settings)
+const cornerClipsToggle = toggleControl("corner-clips", { label: "Corner clips only" });
+cornerClipsToggle.input.checked = true;
+advanced.content.append(cornerClipsToggle.wrapper);
+
+cornerClipsToggle.input.addEventListener("change", () => {
+  cornerClipsOnly.send(cornerClipsToggle.input.checked);
+});
 
 // Open front toggle (inside advanced settings)
 const openFrontToggle = toggleControl("open-front", { label: "Front opening" });
@@ -739,6 +756,7 @@ function loop(nowMillis: DOMHighResTimeStamp) {
             cutoutRadius: openFrontAnimations.cutoutRadius.current,
           }
         : undefined,
+      cornerClipsOnly.latest,
     ).then(() => {
       modelLoadStarted = undefined;
       centerCameraNeeded = true;

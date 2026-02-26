@@ -289,6 +289,7 @@ export async function box(
   wall: number,
   bottom: number,
   openFront?: OpenFrontParams,
+  cornerClipsOnly?: boolean,
 ): Promise<Manifold> {
   const padding = 5; /* mm */
   const W = width - 2 * radius - 2 * padding; // Working area
@@ -307,6 +308,9 @@ export async function box(
 
   for (let i = 0; i < N; i++) {
     for (let j = 0; j < NV; j++) {
+      if (cornerClipsOnly && !(
+        (i === 0 || i === N - 1) && (j === 0 || j === NV - 1)
+      )) continue;
       // For all but the first level, chamfer the clips
       const chamfer = j > 0;
       const [clipL, clipR] = await clips(chamfer);
