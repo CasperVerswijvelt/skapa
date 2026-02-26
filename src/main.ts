@@ -3,14 +3,14 @@ import "./style.css";
 import * as THREE from "three";
 import { Renderer } from "./rendering/renderer";
 
-import { CLIP_HEIGHT, box } from "./model/manifold";
+import { CLIP_HEIGHT, box, type OpenFrontParams } from "./model/manifold";
 import { mesh2geometry } from "./model/export";
 import { TMFLoader } from "./model/load";
 import { Animate, immediate } from "./animate";
 
 import { Dyn } from "twrl";
 
-import { rangeControl, stepper } from "./controls";
+import { rangeControl, stepper, toggleControl, advancedSettings } from "./controls";
 
 /// CONSTANTS
 
@@ -46,6 +46,17 @@ const START_DEPTH = 60;
 const MIN_DEPTH = 20;
 const MAX_DEPTH = 204; /* somewhat arbitrary */
 
+const MIN_RADIUS = 0;
+const MAX_RADIUS = 20;
+
+const START_OPEN_FRONT_OFFSET = 6;
+const MIN_OPEN_FRONT_OFFSET = 0;
+const MAX_OPEN_FRONT_OFFSET = 40;
+
+const START_OPEN_FRONT_RADIUS = 6;
+const MIN_OPEN_FRONT_RADIUS = 0;
+const MAX_OPEN_FRONT_RADIUS = 30;
+
 /// STATE
 
 // Dimensions of the model (outer, where applicable).
@@ -73,6 +84,24 @@ const innerDepth = Dyn.sequence([
   modelDimensions.wall,
   modelDimensions.depth,
 ] as const).map(([wall, depth]) => depth - 2 * wall);
+
+// Open front state
+const openFrontEnabled = new Dyn(false);
+const openFrontDimensions = {
+  offset: new Dyn(START_OPEN_FRONT_OFFSET),
+  cutoutRadius: new Dyn(START_OPEN_FRONT_RADIUS),
+};
+
+// Derived: produces OpenFrontParams or undefined
+const openFrontConfig: Dyn<OpenFrontParams | undefined> = Dyn.sequence([
+  openFrontEnabled,
+  openFrontDimensions.offset,
+  openFrontDimensions.cutoutRadius,
+] as const).map(([enabled, offset, cutoutRadius]) =>
+  enabled
+    ? { sideOffset: offset, bottomOffset: offset, cutoutRadius }
+    : undefined,
+);
 
 // Current state of part positioning
 type PartPositionStatic = Extract<PartPosition, { tag: "static" }>;
@@ -110,8 +139,9 @@ async function reloadModel(
   radius: number,
   wall: number,
   bottom: number,
+  openFront?: OpenFrontParams,
 ) {
-  const model = await box(height, width, depth, radius, wall, bottom);
+  const model = await box(height, width, depth, radius, wall, bottom, openFront);
   const geometry = mesh2geometry(model);
   geometry.computeVertexNormals(); // Make sure the geometry has normals
   mesh.geometry = geometry;
@@ -126,9 +156,11 @@ Dyn.sequence([
   modelDimensions.radius,
   modelDimensions.wall,
   modelDimensions.bottom,
-] as const).addListener(([h, w, d, r, wa, bo]) => {
-  const filename = `skapa-${w}-${d}-${h}.3mf`;
-  tmfLoader.load(box(h, w, d, r, wa, bo), filename);
+  openFrontConfig,
+] as const).addListener(([h, w, d, r, wa, bo, of]) => {
+  const suffix = of ? "-open" : "";
+  const filename = `skapa-${w}-${d}-${h}${suffix}.3mf`;
+  tmfLoader.load(box(h, w, d, r, wa, bo, of), filename);
 });
 
 /// RENDER
@@ -202,6 +234,25 @@ DIMENSIONS.forEach((dim) =>
   }),
 );
 
+// Open front animations
+const openFrontAnimations = {
+  offset: new Animate(START_OPEN_FRONT_OFFSET),
+  cutoutRadius: new Animate(START_OPEN_FRONT_RADIUS),
+};
+let openFrontAnimEnabled = false;
+
+openFrontEnabled.addListener((enabled) => {
+  openFrontAnimEnabled = enabled;
+  reloadModelNeeded = true;
+});
+
+openFrontDimensions.offset.addListener((val) => {
+  openFrontAnimations.offset.startAnimationTo(val);
+});
+openFrontDimensions.cutoutRadius.addListener((val) => {
+  openFrontAnimations.cutoutRadius.startAnimationTo(val);
+});
+
 /// DOM
 
 // Download button
@@ -234,6 +285,64 @@ const depthControl = rangeControl("depth", {
 });
 controls.append(depthControl.wrapper);
 
+// Advanced settings section
+const advanced = advancedSettings("advanced");
+controls.append(advanced.wrapper);
+
+advanced.button.addEventListener("click", () => {
+  const isHidden = advanced.content.style.display === "none";
+  advanced.content.style.display = isHidden ? "" : "none";
+  advanced.button.textContent = isHidden
+    ? "Hide advanced settings"
+    : "Show advanced settings";
+});
+
+// Corner radius slider (inside advanced settings)
+const radiusControl = rangeControl("radius", {
+  name: "Radius",
+  min: String(MIN_RADIUS),
+  max: String(MAX_RADIUS),
+  sliderMin: String(MIN_RADIUS),
+  sliderMax: String(MAX_RADIUS),
+});
+advanced.content.append(radiusControl.wrapper);
+
+// Open front toggle (inside advanced settings)
+const openFrontToggle = toggleControl("open-front", { label: "Front opening" });
+advanced.content.append(openFrontToggle.wrapper);
+
+// Open front sub-controls container
+const openFrontSubControls = document.createElement("div");
+openFrontSubControls.className = "open-front-sub-controls";
+openFrontSubControls.style.display = "none";
+advanced.content.append(openFrontSubControls);
+
+const openFrontOffsetControl = rangeControl("open-front-offset", {
+  name: "Offset",
+  min: String(MIN_OPEN_FRONT_OFFSET),
+  max: String(MAX_OPEN_FRONT_OFFSET),
+  sliderMin: String(MIN_OPEN_FRONT_OFFSET),
+  sliderMax: String(MAX_OPEN_FRONT_OFFSET),
+});
+openFrontSubControls.append(openFrontOffsetControl.wrapper);
+
+const openFrontRadiusControl = rangeControl("open-front-radius", {
+  name: "Radius",
+  min: String(MIN_OPEN_FRONT_RADIUS),
+  max: String(MAX_OPEN_FRONT_RADIUS),
+  sliderMin: String(MIN_OPEN_FRONT_RADIUS),
+  sliderMax: String(MAX_OPEN_FRONT_RADIUS),
+});
+openFrontSubControls.append(openFrontRadiusControl.wrapper);
+
+// Wire open front toggle to show/hide sub-controls
+openFrontToggle.input.addEventListener("change", () => {
+  openFrontEnabled.send(openFrontToggle.input.checked);
+  openFrontSubControls.style.display = openFrontToggle.input.checked
+    ? ""
+    : "none";
+});
+
 // The dimension inputs
 const inputs = {
   levels: document.querySelector("#levels")! as HTMLInputElement,
@@ -243,6 +352,12 @@ const inputs = {
   widthRange: widthControl.range,
   depth: depthControl.input,
   depthRange: depthControl.range,
+  radius: radiusControl.input,
+  radiusRange: radiusControl.range,
+  openFrontOffset: openFrontOffsetControl.input,
+  openFrontOffsetRange: openFrontOffsetControl.range,
+  openFrontRadius: openFrontRadiusControl.input,
+  openFrontRadiusRange: openFrontRadiusControl.range,
 } as const;
 
 // Add change events to all dimension inputs
@@ -308,8 +423,65 @@ inputs.levelsMinus.addEventListener("click", () => {
   });
 });
 
+// radius
+(
+  [
+    [inputs.radius, "change"],
+    [inputs.radiusRange, "input"],
+  ] as const
+).forEach(([input, evnt]) => {
+  modelDimensions.radius.addListener((radius) => {
+    input.value = `${radius}`;
+  });
+  input.addEventListener(evnt, () => {
+    const val = parseInt(input.value);
+    if (!Number.isNaN(val))
+      modelDimensions.radius.send(
+        Math.max(MIN_RADIUS, Math.min(val, MAX_RADIUS)),
+      );
+  });
+});
+
+// open front offset
+(
+  [
+    [inputs.openFrontOffset, "change"],
+    [inputs.openFrontOffsetRange, "input"],
+  ] as const
+).forEach(([input, evnt]) => {
+  openFrontDimensions.offset.addListener((offset) => {
+    input.value = `${offset}`;
+  });
+  input.addEventListener(evnt, () => {
+    const val = parseInt(input.value);
+    if (!Number.isNaN(val))
+      openFrontDimensions.offset.send(
+        Math.max(MIN_OPEN_FRONT_OFFSET, Math.min(val, MAX_OPEN_FRONT_OFFSET)),
+      );
+  });
+});
+
+// open front cutout radius
+(
+  [
+    [inputs.openFrontRadius, "change"],
+    [inputs.openFrontRadiusRange, "input"],
+  ] as const
+).forEach(([input, evnt]) => {
+  openFrontDimensions.cutoutRadius.addListener((r) => {
+    input.value = `${r}`;
+  });
+  input.addEventListener(evnt, () => {
+    const val = parseInt(input.value);
+    if (!Number.isNaN(val))
+      openFrontDimensions.cutoutRadius.send(
+        Math.max(MIN_OPEN_FRONT_RADIUS, Math.min(val, MAX_OPEN_FRONT_RADIUS)),
+      );
+  });
+});
+
 // Add select-all on input click
-(["levels", "width", "depth"] as const).forEach((dim) => {
+(["levels", "width", "depth", "radius", "openFrontOffset", "openFrontRadius"] as const).forEach((dim) => {
   const input = inputs[dim];
   input.addEventListener("focus", () => {
     input.select();
@@ -485,10 +657,15 @@ function loop(nowMillis: DOMHighResTimeStamp) {
   }
 
   // Handle dimensions animation
-  const dimensionsUpdated = DIMENSIONS.reduce(
-    (acc, dim) => animations[dim].update() || acc,
-    false,
-  );
+  const openFrontAnimUpdated =
+    openFrontAnimations.offset.update() ||
+    openFrontAnimations.cutoutRadius.update();
+
+  const dimensionsUpdated =
+    DIMENSIONS.reduce(
+      (acc, dim) => animations[dim].update() || acc,
+      false,
+    ) || openFrontAnimUpdated;
 
   if (dimensionsUpdated) {
     reloadModelNeeded = true;
@@ -511,6 +688,13 @@ function loop(nowMillis: DOMHighResTimeStamp) {
       animations["radius"].current,
       animations["wall"].current,
       animations["bottom"].current,
+      openFrontAnimEnabled
+        ? {
+            sideOffset: openFrontAnimations.offset.current,
+            bottomOffset: openFrontAnimations.offset.current,
+            cutoutRadius: openFrontAnimations.cutoutRadius.current,
+          }
+        : undefined,
     ).then(() => {
       modelLoadStarted = undefined;
       centerCameraNeeded = true;

@@ -47,6 +47,54 @@ export const rangeControl = (
   return { wrapper, range, input };
 };
 
+export const toggleControl = (
+  id: string,
+  opts: { label: string },
+): {
+  wrapper: HTMLElement;
+  input: HTMLInputElement;
+} => {
+  const input = (
+    <input type="checkbox" id={id} className="toggle-switch" />
+  ) as HTMLInputElement;
+
+  const wrapper = (
+    <div className="toggle-input-wrapper">
+      <label htmlFor={id}>{opts.label}</label>
+      {input}
+    </div>
+  );
+
+  return { wrapper, input };
+};
+
+export const advancedSettings = (
+  id: string,
+): {
+  wrapper: HTMLElement;
+  button: HTMLButtonElement;
+  content: HTMLDivElement;
+} => {
+  const button = (
+    <button type="button" id={`${id}-toggle`} className="advanced-settings-toggle">
+      Show advanced settings
+    </button>
+  ) as HTMLButtonElement;
+
+  const content = (
+    <div className="advanced-settings-content" style="display: none;"></div>
+  ) as HTMLDivElement;
+
+  const wrapper = (
+    <div className="advanced-settings">
+      {button}
+      {content}
+    </div>
+  );
+
+  return { wrapper, button, content };
+};
+
 export const stepper = (
   id: string,
   opts: { min: string; max: string; label: string },

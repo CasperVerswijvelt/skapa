@@ -407,6 +407,87 @@ footer {
   stroke-width: 0.2em;
 }
 
+/* Advanced Settings */
+.advanced-settings {
+  padding-top: 2em;
+}
+
+.advanced-settings-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8em;
+  color: #888;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.advanced-settings-content {
+  padding-top: 1.5em;
+}
+
+/* Toggle Switch */
+.toggle-input-wrapper {
+  display: flex;
+  gap: 1em;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toggle-input-wrapper + .toggle-input-wrapper,
+.range-input-wrapper + .toggle-input-wrapper,
+.toggle-input-wrapper + .range-input-wrapper {
+  padding-top: 2em;
+}
+
+.toggle-input-wrapper label {
+  min-width: 3em;
+}
+
+.toggle-switch {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 2.8em;
+  height: 1.5em;
+  border-radius: 0.75em;
+  border: 2px solid black;
+  background: white;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.toggle-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.5em - 8px);
+  height: calc(1.5em - 8px);
+  border-radius: 50%;
+  background: black;
+  transition: transform 0.2s;
+}
+
+.toggle-switch:checked {
+  background: black;
+}
+
+.toggle-switch:checked::before {
+  background: white;
+  transform: translateX(1.3em);
+}
+
+/* Open front sub-controls */
+.open-front-sub-controls {
+  padding-top: 1em;
+}
+
+.open-front-sub-controls .range-input-wrapper + .range-input-wrapper {
+  padding-top: 1em;
+}
+
 /* Download */
 #download {
   --fore: white;
