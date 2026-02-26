@@ -181,6 +181,7 @@ footer {
 
 .range-input-wrapper input[type="range"] {
   margin: 0;
+  flex: 1;
 }
 
 /* ADAPTED FROM https://css-tricks.com/styling-cross-browser-compatible-range-inputs-css/ */
@@ -481,11 +482,18 @@ footer {
 
 /* Open front sub-controls */
 .open-front-sub-controls {
-  padding-top: 1em;
+  padding-top: .75em;
+  padding-left: 0.75em;
+  border-left: 2px solid #000;
+  margin-left: 0.5em;
 }
 
 .open-front-sub-controls .range-input-wrapper + .range-input-wrapper {
   padding-top: 1em;
+}
+
+.open-front-sub-controls .range-input-wrapper label {
+  white-space: nowrap;
 }
 
 /* Download */
