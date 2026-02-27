@@ -117,50 +117,40 @@ export async function clips(
   return [clipR.trimByPlane(n, 0), clipL.trimByPlane(n, 0)];
 }
 
-// Creates a 2D cross-section for the front cutout (U-shaped opening viewed from front)
+// Creates a 2D cross-section for the front cutout (U-shaped opening in contour space)
+// X-axis = contour distance from center, Y-axis = height
 async function frontCutoutCrossSection(
-  width: number,
+  halfExtent: number,
   height: number,
-  wall: number,
   bottom: number,
-  sideOffset: number,
   bottomOffset: number,
   cutoutRadius: number,
 ): Promise<CrossSection> {
   const { CrossSection } = await ManifoldModule.get();
 
-  // Side edges align with the inner wall (inset by wall thickness)
-  const left = -width / 2 + wall + sideOffset;
-  const right = width / 2 - wall - sideOffset;
   const bot = bottom + bottomOffset;
-  const top = height; // actual box height (extension strip handles the overshoot)
+  const top = height;
 
-  // Clamp cutout radius to half the opening width/height
-  const maxR = Math.min((right - left) / 2, (top - bot) / 2);
-  const r = Math.min(cutoutRadius, maxR);
-
-  // Top fillet radius: clamped so outward arcs don't extend past box edge
-  const topR = Math.min(r, sideOffset);
+  // Clamp cutout radius to geometric limits
+  const r = Math.min(cutoutRadius, halfExtent, (top - bot) / 2);
 
   if (r <= 0) {
     // No rounding, simple rectangle — extend past top for clean boolean cut
     const vertices: Vec2[] = [
-      [left, bot],
-      [right, bot],
-      [right, top + BOOLEAN_OVERSHOOT],
-      [left, top + BOOLEAN_OVERSHOOT],
+      [-halfExtent, bot],
+      [halfExtent, bot],
+      [halfExtent, top + BOOLEAN_OVERSHOOT],
+      [-halfExtent, top + BOOLEAN_OVERSHOOT],
     ];
     return new CrossSection(vertices);
   }
 
-  // Build the shape as a single CCW polygon: rounded corners at all 4 corners,
-  // with a rectangular "chimney" extension between the top arcs that extends
-  // past the box top for a clean boolean cut.
+  // Build CCW polygon: U-shape with rounded bottom corners, open top
   const vertices: Vec2[] = [];
 
   // Bottom-left rounded corner (arc from PI to 3PI/2)
   vertices.push(...generateArc({
-    center: [left + r, bot + r],
+    center: [-halfExtent + r, bot + r],
     radius: r,
     startAngle: Math.PI,
     endAngle: (3 * Math.PI) / 2,
@@ -168,39 +158,15 @@ async function frontCutoutCrossSection(
 
   // Bottom-right rounded corner (arc from 3PI/2 to 2PI)
   vertices.push(...generateArc({
-    center: [right - r, bot + r],
+    center: [halfExtent - r, bot + r],
     radius: r,
     startAngle: (3 * Math.PI) / 2,
     endAngle: 2 * Math.PI,
   }));
 
-  // Top-right fillet arc: center inside wall at (right+topR, top-topR)
-  // CW from PI to PI/2 for tangent continuity with the straight right edge
-  if (topR > 0) {
-    vertices.push(...generateArc({
-      center: [right + topR, top - topR],
-      radius: topR,
-      startAngle: Math.PI,
-      endAngle: Math.PI / 2,
-    }));
-
-    // Chimney extension past box top
-    vertices.push([right + topR, top + BOOLEAN_OVERSHOOT]);
-    vertices.push([left - topR, top + BOOLEAN_OVERSHOOT]);
-
-    // Top-left fillet arc: center inside wall at (left-topR, top-topR)
-    // CW from PI/2 to 0 for tangent continuity with the straight left edge
-    vertices.push(...generateArc({
-      center: [left - topR, top - topR],
-      radius: topR,
-      startAngle: Math.PI / 2,
-      endAngle: 0,
-    }));
-  } else {
-    // No top fillet, straight chimney extension
-    vertices.push([right, top + BOOLEAN_OVERSHOOT]);
-    vertices.push([left, top + BOOLEAN_OVERSHOOT]);
-  }
+  // Straight top edge past box top for clean boolean cut
+  vertices.push([halfExtent, top + BOOLEAN_OVERSHOOT]);
+  vertices.push([-halfExtent, top + BOOLEAN_OVERSHOOT]);
 
   return new CrossSection(vertices);
 }
@@ -213,29 +179,77 @@ async function frontCutout(
   radius: number,
   wall: number,
   bottom: number,
-  sideOffset: number,
+  openness: number,
   bottomOffset: number,
   cutoutRadius: number,
 ): Promise<Manifold> {
+  // Contour geometry: half-perimeter from center-front going right
+  const halfFrontFlat = width / 2 - radius;
+  const cornerArc = radius * Math.PI / 2;
+  const sideFlat = depth - 2 * radius;
+  const maxHalf = halfFrontFlat + cornerArc + sideFlat;
+  const halfExtent = openness * maxHalf;
+
   const cs = await frontCutoutCrossSection(
-    width,
+    halfExtent,
     height,
-    wall,
     bottom,
-    sideOffset,
     bottomOffset,
     cutoutRadius,
   );
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
-  return cs
-    .extrude(Math.max(radius, wall) + 2 * BOOLEAN_OVERSHOOT)
+  let cutout = cs
+    .extrude(wall + 2 * BOOLEAN_OVERSHOOT)
     .rotate([90, 0, 0])
     .translate([0, depth / 2 + BOOLEAN_OVERSHOOT, 0]);
+
+  const flatBound = halfFrontFlat;
+  const needsWarp = halfExtent > flatBound && radius > 0;
+
+  if (needsWarp) {
+    // Refine mesh so the warp has enough vertices for smooth bending
+    cutout = cutout.refineToLength(2);
+
+    const halfD = depth / 2;
+    const cornerCY = halfD - radius;
+
+    cutout = cutout.warp((v: Vec3) => {
+      const x = v[0];
+      const y = v[1];
+      const absX = Math.abs(x);
+      const sign = x >= 0 ? 1 : -1;
+
+      if (absX <= flatBound) {
+        // Region 1: Front flat — no transform
+        return;
+      }
+
+      const arcEnd = flatBound + cornerArc;
+
+      if (absX <= arcEnd) {
+        // Region 2: Corner arc — cylindrical bend
+        const theta = (absX - flatBound) / radius;
+        let rLocal = y - cornerCY;
+        // Prevent degenerate triangles when rLocal crosses corner center
+        if (rLocal < 0.01) rLocal = 0.01;
+        v[0] = sign * (flatBound + rLocal * Math.sin(theta));
+        v[1] = cornerCY + rLocal * Math.cos(theta);
+      } else {
+        // Region 3: Side flat — linear remap
+        const d = absX - arcEnd;
+        const rLocal = y - cornerCY;
+        v[0] = sign * (flatBound + rLocal);
+        v[1] = cornerCY - d;
+      }
+    });
+  }
+
+  return cutout;
 }
 
 export type OpenFrontParams = {
-  sideOffset: number;
+  openness: number; // fraction 0.05–1.0
   bottomOffset: number;
   cutoutRadius: number;
 };
@@ -270,7 +284,7 @@ export async function base(
       radius,
       wall,
       bottom,
-      openFront.sideOffset,
+      openFront.openness,
       openFront.bottomOffset,
       openFront.cutoutRadius,
     );

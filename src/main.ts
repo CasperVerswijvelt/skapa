@@ -49,7 +49,10 @@ const MAX_DEPTH = 204; /* somewhat arbitrary */
 const MIN_RADIUS = 0;
 const MAX_RADIUS = 20;
 
-const START_OPEN_FRONT_SIDE_OFFSET = 10;
+const START_OPEN_FRONT_OPENNESS = 50; // percentage
+const MIN_OPEN_FRONT_OPENNESS = 5;
+const MAX_OPEN_FRONT_OPENNESS = 100;
+
 const START_OPEN_FRONT_BOTTOM_OFFSET = 10;
 const MIN_OPEN_FRONT_OFFSET = 0;
 
@@ -90,17 +93,12 @@ const cornerClipsOnly = new Dyn(true);
 // Open front state
 const openFrontEnabled = new Dyn(false);
 const openFrontDimensions = {
-  sideOffset: new Dyn(START_OPEN_FRONT_SIDE_OFFSET),
+  openness: new Dyn(START_OPEN_FRONT_OPENNESS),
   bottomOffset: new Dyn(START_OPEN_FRONT_BOTTOM_OFFSET),
   cutoutRadius: new Dyn(START_OPEN_FRONT_RADIUS),
 };
 
 // Dynamic max limits for open front controls
-const maxSideOffset = Dyn.sequence([
-  modelDimensions.width,
-  modelDimensions.wall,
-] as const).map(([width, wall]) => Math.floor((width - 2 * wall) / 2) - 1);
-
 const maxBottomOffset = Dyn.sequence([
   modelDimensions.height,
   modelDimensions.bottom,
@@ -108,23 +106,22 @@ const maxBottomOffset = Dyn.sequence([
 
 const maxCutoutRadius = Dyn.sequence([
   modelDimensions.width,
-  modelDimensions.wall,
+  modelDimensions.depth,
+  modelDimensions.radius,
   modelDimensions.height,
   modelDimensions.bottom,
-  openFrontDimensions.sideOffset,
+  openFrontDimensions.openness,
   openFrontDimensions.bottomOffset,
-] as const).map(([width, wall, height, bottom, sideOff, botOff]) =>
-  Math.floor(Math.min(
-    (width - 2 * wall - 2 * sideOff) / 2,
-    (height - bottom - botOff) / 2,
-  )) - 1,
-);
+] as const).map(([width, depth, radius, height, bottom, openness, botOff]) => {
+  const halfFrontFlat = width / 2 - radius;
+  const cornerArc = radius * Math.PI / 2;
+  const sideFlat = depth - 2 * radius;
+  const maxHalf = halfFrontFlat + cornerArc + sideFlat;
+  const halfExtent = (openness / 100) * maxHalf;
+  return Math.floor(Math.min(halfExtent, (height - bottom - botOff) / 2)) - 1;
+});
 
 // Clamp current values when max shrinks
-maxSideOffset.addListener((max) => {
-  if (openFrontDimensions.sideOffset.latest > max)
-    openFrontDimensions.sideOffset.send(Math.max(MIN_OPEN_FRONT_OFFSET, max));
-});
 maxBottomOffset.addListener((max) => {
   if (openFrontDimensions.bottomOffset.latest > max)
     openFrontDimensions.bottomOffset.send(Math.max(MIN_OPEN_FRONT_OFFSET, max));
@@ -137,11 +134,11 @@ maxCutoutRadius.addListener((max) => {
 // Derived: produces OpenFrontParams or undefined
 const openFrontConfig: Dyn<OpenFrontParams | undefined> = Dyn.sequence([
   openFrontEnabled,
-  openFrontDimensions.sideOffset,
+  openFrontDimensions.openness,
   openFrontDimensions.bottomOffset,
   openFrontDimensions.cutoutRadius,
-] as const).map(([enabled, sideOffset, bottomOffset, cutoutRadius]) =>
-  enabled ? { sideOffset, bottomOffset, cutoutRadius } : undefined,
+] as const).map(([enabled, openness, bottomOffset, cutoutRadius]) =>
+  enabled ? { openness: openness / 100, bottomOffset, cutoutRadius } : undefined,
 );
 
 // Current state of part positioning
@@ -279,7 +276,7 @@ DIMENSIONS.forEach((dim) =>
 
 // Open front animations
 const openFrontAnimations = {
-  sideOffset: new Animate(START_OPEN_FRONT_SIDE_OFFSET),
+  openness: new Animate(START_OPEN_FRONT_OPENNESS),
   bottomOffset: new Animate(START_OPEN_FRONT_BOTTOM_OFFSET),
   cutoutRadius: new Animate(START_OPEN_FRONT_RADIUS),
 };
@@ -290,8 +287,8 @@ cornerClipsOnly.addListener(() => {
   reloadModelNeeded = true;
 });
 
-openFrontDimensions.sideOffset.addListener((val) => {
-  openFrontAnimations.sideOffset.startAnimationTo(val);
+openFrontDimensions.openness.addListener((val) => {
+  openFrontAnimations.openness.startAnimationTo(val);
 });
 openFrontDimensions.bottomOffset.addListener((val) => {
   openFrontAnimations.bottomOffset.startAnimationTo(val);
@@ -373,21 +370,24 @@ openFrontSubControls.className = "open-front-sub-controls";
 openFrontSubControls.style.display = "none";
 advanced.content.append(openFrontSubControls);
 
-const initialMaxSideOffset = Math.floor((START_WIDTH - 2 * START_WALL) / 2) - 1;
 const initialMaxBottomOffset = Math.floor(START_HEIGHT - START_BOTTOM) - 1;
-const initialMaxCutoutRadius = Math.floor(Math.min(
-  (START_WIDTH - 2 * START_WALL - 2 * START_OPEN_FRONT_SIDE_OFFSET) / 2,
-  (START_HEIGHT - START_BOTTOM - START_OPEN_FRONT_BOTTOM_OFFSET) / 2,
-)) - 1;
+const initialMaxCutoutRadius = (() => {
+  const halfFrontFlat = START_WIDTH / 2 - START_RADIUS;
+  const cornerArc = START_RADIUS * Math.PI / 2;
+  const sideFlat = START_DEPTH - 2 * START_RADIUS;
+  const maxHalf = halfFrontFlat + cornerArc + sideFlat;
+  const halfExtent = (START_OPEN_FRONT_OPENNESS / 100) * maxHalf;
+  return Math.floor(Math.min(halfExtent, (START_HEIGHT - START_BOTTOM - START_OPEN_FRONT_BOTTOM_OFFSET) / 2)) - 1;
+})();
 
-const openFrontSideOffsetControl = rangeControl("open-front-side-offset", {
-  name: "Side offset",
-  min: String(MIN_OPEN_FRONT_OFFSET),
-  max: String(initialMaxSideOffset),
-  sliderMin: String(MIN_OPEN_FRONT_OFFSET),
-  sliderMax: String(initialMaxSideOffset),
+const openFrontOpennessControl = rangeControl("open-front-openness", {
+  name: "Openness",
+  min: String(MIN_OPEN_FRONT_OPENNESS),
+  max: String(MAX_OPEN_FRONT_OPENNESS),
+  sliderMin: String(MIN_OPEN_FRONT_OPENNESS),
+  sliderMax: String(MAX_OPEN_FRONT_OPENNESS),
 });
-openFrontSubControls.append(openFrontSideOffsetControl.wrapper);
+openFrontSubControls.append(openFrontOpennessControl.wrapper);
 
 const openFrontBottomOffsetControl = rangeControl("open-front-bottom-offset", {
   name: "Bottom offset",
@@ -426,8 +426,8 @@ const inputs = {
   depthRange: depthControl.range,
   radius: radiusControl.input,
   radiusRange: radiusControl.range,
-  openFrontSideOffset: openFrontSideOffsetControl.input,
-  openFrontSideOffsetRange: openFrontSideOffsetControl.range,
+  openFrontOpenness: openFrontOpennessControl.input,
+  openFrontOpennessRange: openFrontOpennessControl.range,
   openFrontBottomOffset: openFrontBottomOffsetControl.input,
   openFrontBottomOffsetRange: openFrontBottomOffsetControl.range,
   openFrontRadius: openFrontRadiusControl.input,
@@ -525,9 +525,9 @@ bindRangeControl(radiusControl, modelDimensions.radius, {
   max: MAX_RADIUS,
 });
 
-bindRangeControl(openFrontSideOffsetControl, openFrontDimensions.sideOffset, {
-  min: MIN_OPEN_FRONT_OFFSET,
-  max: maxSideOffset,
+bindRangeControl(openFrontOpennessControl, openFrontDimensions.openness, {
+  min: MIN_OPEN_FRONT_OPENNESS,
+  max: MAX_OPEN_FRONT_OPENNESS,
 });
 
 bindRangeControl(openFrontBottomOffsetControl, openFrontDimensions.bottomOffset, {
@@ -541,7 +541,7 @@ bindRangeControl(openFrontRadiusControl, openFrontDimensions.cutoutRadius, {
 });
 
 // Add select-all on input click
-(["levels", "width", "depth", "radius", "openFrontSideOffset", "openFrontBottomOffset", "openFrontRadius"] as const).forEach((dim) => {
+(["levels", "width", "depth", "radius", "openFrontOpenness", "openFrontBottomOffset", "openFrontRadius"] as const).forEach((dim) => {
   const input = inputs[dim];
   input.addEventListener("focus", () => {
     input.select();
@@ -718,7 +718,7 @@ function loop(nowMillis: DOMHighResTimeStamp) {
 
   // Handle dimensions animation
   const openFrontAnimUpdated =
-    openFrontAnimations.sideOffset.update() ||
+    openFrontAnimations.openness.update() ||
     openFrontAnimations.bottomOffset.update() ||
     openFrontAnimations.cutoutRadius.update();
 
@@ -751,7 +751,7 @@ function loop(nowMillis: DOMHighResTimeStamp) {
       animations["bottom"].current,
       openFrontEnabled.latest
         ? {
-            sideOffset: openFrontAnimations.sideOffset.current,
+            openness: openFrontAnimations.openness.current / 100,
             bottomOffset: openFrontAnimations.bottomOffset.current,
             cutoutRadius: openFrontAnimations.cutoutRadius.current,
           }
