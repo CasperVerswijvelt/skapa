@@ -116,7 +116,7 @@ const maxCutoutRadius = Dyn.sequence([
   const halfFrontFlat = width / 2 - radius;
   const cornerArc = radius * Math.PI / 2;
   const sideFlat = depth - 2 * radius;
-  const maxHalf = halfFrontFlat + cornerArc + sideFlat;
+  const maxHalf = halfFrontFlat + cornerArc + sideFlat + cornerArc;
   const halfExtent = (openness / 100) * maxHalf;
   return Math.floor(Math.min(halfExtent, (height - bottom - botOff) / 2)) - 1;
 });
@@ -375,7 +375,7 @@ const initialMaxCutoutRadius = (() => {
   const halfFrontFlat = START_WIDTH / 2 - START_RADIUS;
   const cornerArc = START_RADIUS * Math.PI / 2;
   const sideFlat = START_DEPTH - 2 * START_RADIUS;
-  const maxHalf = halfFrontFlat + cornerArc + sideFlat;
+  const maxHalf = halfFrontFlat + cornerArc + sideFlat + cornerArc;
   const halfExtent = (START_OPEN_FRONT_OPENNESS / 100) * maxHalf;
   return Math.floor(Math.min(halfExtent, (START_HEIGHT - START_BOTTOM - START_OPEN_FRONT_BOTTOM_OFFSET) / 2)) - 1;
 })();
@@ -386,6 +386,7 @@ const openFrontOpennessControl = rangeControl("open-front-openness", {
   max: String(MAX_OPEN_FRONT_OPENNESS),
   sliderMin: String(MIN_OPEN_FRONT_OPENNESS),
   sliderMax: String(MAX_OPEN_FRONT_OPENNESS),
+  unit: "%",
 });
 openFrontSubControls.append(openFrontOpennessControl.wrapper);
 

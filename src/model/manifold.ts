@@ -212,7 +212,7 @@ async function frontCutout(
   const halfFrontFlat = width / 2 - radius;
   const cornerArc = radius * Math.PI / 2;
   const sideFlat = depth - 2 * radius;
-  const maxHalf = halfFrontFlat + cornerArc + sideFlat;
+  const maxHalf = halfFrontFlat + cornerArc + sideFlat + cornerArc;
   const halfExtent = openness * maxHalf;
 
   // Compute top fillet radius: clamp so outward arc doesn't exceed contour bounds
@@ -268,11 +268,22 @@ async function frontCutout(
         v[0] = sign * (flatBound + rLocal * Math.sin(theta));
         v[1] = cornerCY + rLocal * Math.cos(theta);
       } else {
-        // Region 3: Side flat — linear remap
-        const d = absX - arcEnd;
-        const rLocal = y - cornerCY;
-        v[0] = sign * (flatBound + rLocal);
-        v[1] = cornerCY - d;
+        const sideEnd = arcEnd + sideFlat;
+
+        if (absX <= sideEnd) {
+          // Region 3: Side flat — linear remap
+          const d = absX - arcEnd;
+          const rLocal = y - cornerCY;
+          v[0] = sign * (flatBound + rLocal);
+          v[1] = cornerCY - d;
+        } else {
+          // Region 4: Back corner arc — cylindrical bend around back corner center
+          const backCornerCY = cornerCY - sideFlat;
+          const thetaBack = (absX - sideEnd) / radius;
+          const rLocal = y - cornerCY;
+          v[0] = sign * (flatBound + rLocal * Math.cos(thetaBack));
+          v[1] = backCornerCY - rLocal * Math.sin(thetaBack);
+        }
       }
     });
   }
