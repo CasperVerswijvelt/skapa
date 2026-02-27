@@ -125,7 +125,6 @@ async function frontCutoutCrossSection(
   bottom: number,
   bottomOffset: number,
   cutoutRadius: number,
-  maxHalf: number,
   topR: number,
 ): Promise<CrossSection> {
   const { CrossSection } = await ManifoldModule.get();
@@ -227,7 +226,6 @@ async function frontCutout(
     bottom,
     bottomOffset,
     cutoutRadius,
-    maxHalf,
     topR > 0 ? topR : 0,
   );
 
