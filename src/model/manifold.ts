@@ -207,6 +207,7 @@ async function frontCutout(
   openness: number,
   bottomOffset: number,
   cutoutRadius: number,
+  backFlatAllowance: number,
 ): Promise<Manifold> {
   // Contour geometry: half-perimeter from center-front going right
   const halfFrontFlat = width / 2 - radius;
@@ -218,7 +219,7 @@ async function frontCutout(
   // Compute top fillet radius: clamp so outward arc doesn't exceed contour bounds
   const bot = bottom + bottomOffset;
   const rClamped = Math.min(cutoutRadius, halfExtent, (height - bot) / 2);
-  const topR = Math.min(rClamped, maxHalf - halfExtent);
+  const topR = Math.min(rClamped, maxHalf + backFlatAllowance - halfExtent);
 
   const cs = await frontCutoutCrossSection(
     halfExtent,
@@ -246,45 +247,57 @@ async function frontCutout(
     const halfD = depth / 2;
     const cornerCY = halfD - radius;
 
+    const backCornerCY = cornerCY - sideFlat;
+
     cutout = cutout.warp((v: Vec3) => {
       const x = v[0];
       const y = v[1];
       const absX = Math.abs(x);
       const sign = x >= 0 ? 1 : -1;
 
-      if (absX <= flatBound) {
-        // Region 1: Front flat — no transform
-        return;
-      }
+      // Region 1: Front flat — no transform
+      if (absX <= flatBound) return;
 
       const arcEnd = flatBound + cornerArc;
 
+      // Region 2: Corner arc — cylindrical bend
       if (absX <= arcEnd) {
-        // Region 2: Corner arc — cylindrical bend
         const theta = (absX - flatBound) / radius;
         let rLocal = y - cornerCY;
         // Prevent degenerate triangles when rLocal crosses corner center
         if (rLocal < 0.01) rLocal = 0.01;
         v[0] = sign * (flatBound + rLocal * Math.sin(theta));
         v[1] = cornerCY + rLocal * Math.cos(theta);
-      } else {
-        const sideEnd = arcEnd + sideFlat;
-
-        if (absX <= sideEnd) {
-          // Region 3: Side flat — linear remap
-          const d = absX - arcEnd;
-          const rLocal = y - cornerCY;
-          v[0] = sign * (flatBound + rLocal);
-          v[1] = cornerCY - d;
-        } else {
-          // Region 4: Back corner arc — cylindrical bend around back corner center
-          const backCornerCY = cornerCY - sideFlat;
-          const thetaBack = (absX - sideEnd) / radius;
-          const rLocal = y - cornerCY;
-          v[0] = sign * (flatBound + rLocal * Math.cos(thetaBack));
-          v[1] = backCornerCY - rLocal * Math.sin(thetaBack);
-        }
+        return;
       }
+
+      const sideEnd = arcEnd + sideFlat;
+
+      // Region 3: Side flat — linear remap
+      if (absX <= sideEnd) {
+        const d = absX - arcEnd;
+        const rLocal = y - cornerCY;
+        v[0] = sign * (flatBound + rLocal);
+        v[1] = cornerCY - d;
+        return;
+      }
+
+      const backArcEnd = sideEnd + cornerArc;
+
+      // Region 4: Back corner arc — cylindrical bend around back corner center
+      if (absX <= backArcEnd) {
+        const thetaBack = (absX - sideEnd) / radius;
+        const rLocal = y - cornerCY;
+        v[0] = sign * (flatBound + rLocal * Math.cos(thetaBack));
+        v[1] = backCornerCY - rLocal * Math.sin(thetaBack);
+        return;
+      }
+
+      // Region 5: Back flat wall — linear remap along back wall
+      const dBack = absX - backArcEnd;
+      const rLocal = y - cornerCY;
+      v[0] = sign * (flatBound - dBack);
+      v[1] = backCornerCY - rLocal;
     });
   }
 
@@ -295,6 +308,7 @@ export type OpenFrontParams = {
   openness: number; // fraction 0.05–1.0
   bottomOffset: number;
   cutoutRadius: number;
+  backFlatAllowance?: number;
 };
 
 // The box (without clips) with origin in the middle of the bottom face
@@ -330,6 +344,7 @@ export async function base(
       openFront.openness,
       openFront.bottomOffset,
       openFront.cutoutRadius,
+      openFront.backFlatAllowance ?? 0,
     );
     result = result.subtract(cutout);
   }
@@ -361,7 +376,16 @@ export async function box(
   const gh = 40;
   const NV = Math.floor(H / gh + 1);
 
-  let res = await base(height, width, depth, radius, wall, bottom, openFront);
+  let openFrontAugmented = openFront;
+  if (openFront) {
+    const flatBound = width / 2 - radius;
+    // 3.05 = clip pair half-width (max X in clipRCrossSection)
+    const outerClipX = N > 0 ? (M / 2) * gw + 3.05 : 0;
+    const backFlatAllowance = Math.max(0, flatBound - outerClipX - 1); // 1mm clearance
+    openFrontAugmented = { ...openFront, backFlatAllowance };
+  }
+
+  let res = await base(height, width, depth, radius, wall, bottom, openFrontAugmented);
 
   for (let i = 0; i < N; i++) {
     for (let j = 0; j < NV; j++) {
