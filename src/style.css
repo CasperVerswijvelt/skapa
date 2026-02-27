@@ -337,9 +337,12 @@ footer {
   align-items: center;
 }
 
-/* "mm" */
+/* "mm" (default unit) */
 .range-input-value::after {
   content: "mm";
+}
+.range-input-value[data-unit="%"]::after {
+  content: "%";
 }
 
 /* Stepper */

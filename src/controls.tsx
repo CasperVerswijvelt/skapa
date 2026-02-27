@@ -9,6 +9,7 @@ export const rangeControl = (
     max: string;
     sliderMin: string;
     sliderMax: string;
+    unit?: string;
   },
 ): {
   wrapper: HTMLElement;
@@ -36,11 +37,14 @@ export const rangeControl = (
     />
   ) as HTMLInputElement;
 
+  const valueDiv = (<div className="range-input-value">{input}</div>) as HTMLDivElement;
+  if (opts.unit) valueDiv.dataset.unit = opts.unit;
+
   const wrapper = (
     <div className="range-input-wrapper">
       <label htmlFor={id}>{opts.name}</label>
       {range}
-      <div className="range-input-value">{input}</div>
+      {valueDiv}
     </div>
   );
 
