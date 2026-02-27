@@ -370,15 +370,8 @@ openFrontSubControls.className = "open-front-sub-controls";
 openFrontSubControls.style.display = "none";
 advanced.content.append(openFrontSubControls);
 
-const initialMaxBottomOffset = Math.floor(START_HEIGHT - START_BOTTOM) - 1;
-const initialMaxCutoutRadius = (() => {
-  const halfFrontFlat = START_WIDTH / 2 - START_RADIUS;
-  const cornerArc = START_RADIUS * Math.PI / 2;
-  const sideFlat = START_DEPTH - 2 * START_RADIUS;
-  const maxHalf = halfFrontFlat + cornerArc + sideFlat + cornerArc;
-  const halfExtent = (START_OPEN_FRONT_OPENNESS / 100) * maxHalf;
-  return Math.floor(Math.min(halfExtent, (START_HEIGHT - START_BOTTOM - START_OPEN_FRONT_BOTTOM_OFFSET) / 2)) - 1;
-})();
+const initialMaxBottomOffset = maxBottomOffset.latest;
+const initialMaxCutoutRadius = maxCutoutRadius.latest;
 
 const openFrontOpennessControl = rangeControl("open-front-openness", {
   name: "Openness",
@@ -422,17 +415,11 @@ const inputs = {
   levelsPlus: document.querySelector("#levels-plus")! as HTMLButtonElement,
   levelsMinus: document.querySelector("#levels-minus")! as HTMLButtonElement,
   width: widthControl.input,
-  widthRange: widthControl.range,
   depth: depthControl.input,
-  depthRange: depthControl.range,
   radius: radiusControl.input,
-  radiusRange: radiusControl.range,
   openFrontOpenness: openFrontOpennessControl.input,
-  openFrontOpennessRange: openFrontOpennessControl.range,
   openFrontBottomOffset: openFrontBottomOffsetControl.input,
-  openFrontBottomOffsetRange: openFrontBottomOffsetControl.range,
   openFrontRadius: openFrontRadiusControl.input,
-  openFrontRadiusRange: openFrontRadiusControl.range,
 } as const;
 
 // Add change events to all dimension inputs

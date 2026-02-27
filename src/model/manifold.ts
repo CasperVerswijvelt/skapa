@@ -226,7 +226,7 @@ async function frontCutout(
     bottom,
     bottomOffset,
     cutoutRadius,
-    topR > 0 ? topR : 0,
+    Math.max(0, topR),
   );
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
@@ -236,14 +236,13 @@ async function frontCutout(
     .translate([0, depth / 2 + BOOLEAN_OVERSHOOT, 0]);
 
   const flatBound = halfFrontFlat;
-  const needsWarp = (halfExtent + (topR > 0 ? topR : 0)) > flatBound && radius > 0;
+  const needsWarp = (halfExtent + Math.max(0, topR)) > flatBound && radius > 0;
 
   if (needsWarp) {
     // Refine mesh so the warp has enough vertices for smooth bending
     cutout = cutout.refineToLength(2);
 
-    const halfD = depth / 2;
-    const cornerCY = halfD - radius;
+    const cornerCY = depth / 2 - radius;
 
     const backCornerCY = cornerCY - sideFlat;
 
