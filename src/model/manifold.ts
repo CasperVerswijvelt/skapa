@@ -125,6 +125,8 @@ async function frontCutoutCrossSection(
   bottom: number,
   bottomOffset: number,
   cutoutRadius: number,
+  maxHalf: number,
+  topR: number,
 ): Promise<CrossSection> {
   const { CrossSection } = await ManifoldModule.get();
 
@@ -145,10 +147,11 @@ async function frontCutoutCrossSection(
     return new CrossSection(vertices);
   }
 
-  // Build CCW polygon: U-shape with rounded bottom corners, open top
+  // Build CCW polygon: U-shape with rounded bottom corners,
+  // outward-flaring top corners, and chimney extension at top
   const vertices: Vec2[] = [];
 
-  // Bottom-left rounded corner (arc from PI to 3PI/2)
+  // Bottom-left rounded corner (arc from PI to 3PI/2) — curves inward
   vertices.push(...generateArc({
     center: [-halfExtent + r, bot + r],
     radius: r,
@@ -156,7 +159,7 @@ async function frontCutoutCrossSection(
     endAngle: (3 * Math.PI) / 2,
   }));
 
-  // Bottom-right rounded corner (arc from 3PI/2 to 2PI)
+  // Bottom-right rounded corner (arc from 3PI/2 to 2PI) — curves inward
   vertices.push(...generateArc({
     center: [halfExtent - r, bot + r],
     radius: r,
@@ -164,9 +167,31 @@ async function frontCutoutCrossSection(
     endAngle: 2 * Math.PI,
   }));
 
-  // Straight top edge past box top for clean boolean cut
-  vertices.push([halfExtent, top + BOOLEAN_OVERSHOOT]);
-  vertices.push([-halfExtent, top + BOOLEAN_OVERSHOOT]);
+  if (topR > 0) {
+    // Top-right concave fillet: center (hE+topR, top-topR), from (hE, top-topR) to (hE+topR, top)
+    vertices.push(...generateArc({
+      center: [halfExtent + topR, top - topR],
+      radius: topR,
+      startAngle: Math.PI,
+      endAngle: Math.PI / 2,
+    }));
+
+    // Chimney right & left (wider by topR)
+    vertices.push([halfExtent + topR, top + BOOLEAN_OVERSHOOT]);
+    vertices.push([-halfExtent - topR, top + BOOLEAN_OVERSHOOT]);
+
+    // Top-left concave fillet: center (-hE-topR, top-topR), from (-hE-topR, top) to (-hE, top-topR)
+    vertices.push(...generateArc({
+      center: [-halfExtent - topR, top - topR],
+      radius: topR,
+      startAngle: Math.PI / 2,
+      endAngle: 0,
+    }));
+  } else {
+    // No top rounding — straight chimney at halfExtent
+    vertices.push([halfExtent, top + BOOLEAN_OVERSHOOT]);
+    vertices.push([-halfExtent, top + BOOLEAN_OVERSHOOT]);
+  }
 
   return new CrossSection(vertices);
 }
@@ -190,12 +215,19 @@ async function frontCutout(
   const maxHalf = halfFrontFlat + cornerArc + sideFlat;
   const halfExtent = openness * maxHalf;
 
+  // Compute top fillet radius: clamp so outward arc doesn't exceed contour bounds
+  const bot = bottom + bottomOffset;
+  const rClamped = Math.min(cutoutRadius, halfExtent, (height - bot) / 2);
+  const topR = Math.min(rClamped, maxHalf - halfExtent);
+
   const cs = await frontCutoutCrossSection(
     halfExtent,
     height,
     bottom,
     bottomOffset,
     cutoutRadius,
+    maxHalf,
+    topR > 0 ? topR : 0,
   );
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
@@ -205,7 +237,7 @@ async function frontCutout(
     .translate([0, depth / 2 + BOOLEAN_OVERSHOOT, 0]);
 
   const flatBound = halfFrontFlat;
-  const needsWarp = halfExtent > flatBound && radius > 0;
+  const needsWarp = (halfExtent + (topR > 0 ? topR : 0)) > flatBound && radius > 0;
 
   if (needsWarp) {
     // Refine mesh so the warp has enough vertices for smooth bending
