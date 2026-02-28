@@ -865,15 +865,17 @@ function loop(nowMillis: DOMHighResTimeStamp) {
 
   // Handle dimensions animation
   const openFrontAnimUpdated =
-    openFrontAnimations.openness.update() ||
-    openFrontAnimations.bottomOffset.update() ||
-    openFrontAnimations.cutoutRadius.update();
+    [openFrontAnimations.openness,
+     openFrontAnimations.bottomOffset,
+     openFrontAnimations.cutoutRadius,
+    ].reduce((acc, anim) => anim.update() || acc, false);
 
   const cornerRadiiAnimUpdated =
-    cornerRadiiAnimations.frontLeft.update() ||
-    cornerRadiiAnimations.frontRight.update() ||
-    cornerRadiiAnimations.backLeft.update() ||
-    cornerRadiiAnimations.backRight.update();
+    [cornerRadiiAnimations.frontLeft,
+     cornerRadiiAnimations.frontRight,
+     cornerRadiiAnimations.backLeft,
+     cornerRadiiAnimations.backRight,
+    ].reduce((acc, anim) => anim.update() || acc, false);
 
   const dimensionsUpdated =
     DIMENSIONS.reduce(

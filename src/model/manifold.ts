@@ -444,6 +444,9 @@ export async function box(
   const M = N - 1;
   const dx = ((-1 * M) / 2) * gw; // where to place the clips
 
+  // Center of the flat back region (may be off-center when radii differ)
+  const backFlatCenter = (radii.backRight - radii.backLeft) / 2;
+
   // Same as horizontal, but vertically (slightly simpler because we always start
   // from 0 and we don't need to take the radius into account)
   const H = height - CLIP_HEIGHT; // Total height minus clip height
@@ -454,7 +457,7 @@ export async function box(
   if (openFront) {
     const flatBound = width / 2 - Math.max(radii.backLeft, radii.backRight);
     // 3.05 = clip pair half-width (max X in clipRCrossSection)
-    const outerClipX = N > 0 ? (M / 2) * gw + 3.05 : 0;
+    const outerClipX = N > 0 ? (M / 2) * gw + Math.abs(backFlatCenter) + 3.05 : 0;
     const backFlatAllowance = Math.max(0, flatBound - outerClipX - 1); // 1mm clearance
     openFrontAugmented = { ...openFront, backFlatAllowance };
   }
@@ -469,8 +472,8 @@ export async function box(
       // For all but the first level, chamfer the clips
       const chamfer = j > 0;
       const [clipL, clipR] = await clips(chamfer);
-      res = res.add(clipL.translate(i * gw + dx, -depth / 2, j * gh));
-      res = res.add(clipR.translate(i * gw + dx, -depth / 2, j * gh));
+      res = res.add(clipL.translate(i * gw + dx + backFlatCenter, -depth / 2, j * gh));
+      res = res.add(clipR.translate(i * gw + dx + backFlatCenter, -depth / 2, j * gh));
     }
   }
 
