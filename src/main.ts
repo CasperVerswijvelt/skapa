@@ -112,27 +112,11 @@ const maxBottomOffset = Dyn.sequence([
 ] as const).map(([height, bottom]) => Math.floor(height - bottom) - 1);
 
 const maxCutoutRadius = Dyn.sequence([
-  modelDimensions.width,
-  modelDimensions.depth,
-  cornerRadii.frontLeft,
-  cornerRadii.frontRight,
-  cornerRadii.backLeft,
-  cornerRadii.backRight,
   modelDimensions.height,
   modelDimensions.bottom,
-  openFrontDimensions.openness,
   openFrontDimensions.bottomOffset,
-] as const).map(([width, depth, rFL, rFR, rBL, rBR, height, bottom, openness, botOff]) => {
-  // Conservative: use max front/back radii for contour computation
-  const frontR = Math.max(rFL, rFR);
-  const backR = Math.max(rBL, rBR);
-  const halfFrontFlat = width / 2 - frontR;
-  const cornerArc_front = frontR * Math.PI / 2;
-  const sideFlat = depth - frontR - backR;
-  const cornerArc_back = backR * Math.PI / 2;
-  const maxHalf = halfFrontFlat + cornerArc_front + sideFlat + cornerArc_back;
-  const halfExtent = (openness / 100) * maxHalf;
-  return Math.floor(Math.min(halfExtent, (height - bottom - botOff) / 2)) - 1;
+] as const).map(([height, bottom, botOff]) => {
+  return Math.floor((height - bottom - botOff) / 2) - 1;
 });
 
 // Clamp current values when max shrinks
