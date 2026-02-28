@@ -465,9 +465,9 @@ export async function box(
     // Per-side flat bounds: warp Region 5 maps back-flat X from halfFrontFlat
     const warpFlatBound_R = width / 2 - radii.frontLeft;
     const warpFlatBound_L = width / 2 - radii.frontRight;
-    // Per-side clip edges: account for backFlatCenter shift (3.05 = clip pair half-width)
-    const outerClipX_R = N > 0 ? Math.max(0, (M / 2) * gw + backFlatCenter + 3.05) : 0;
-    const outerClipX_L = N > 0 ? Math.max(0, (M / 2) * gw - backFlatCenter + 3.05) : 0;
+    // Per-side clip edges: account for backFlatCenter shift (2.45 = clip wall-surface footprint)
+    const outerClipX_R = N > 0 ? Math.max(0, (M / 2) * gw + backFlatCenter + 2.45) : 0;
+    const outerClipX_L = N > 0 ? Math.max(0, (M / 2) * gw - backFlatCenter + 2.45) : 0;
     const backFlatAllowance_R = Math.max(0, warpFlatBound_R - outerClipX_R - 1); // 1mm clearance
     const backFlatAllowance_L = Math.max(0, warpFlatBound_L - outerClipX_L - 1);
     openFrontAugmented = { ...openFront, backFlatAllowance_R, backFlatAllowance_L };
