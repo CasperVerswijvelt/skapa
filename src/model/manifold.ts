@@ -145,7 +145,8 @@ export async function clips(
 // Creates a 2D cross-section for the front cutout (U-shaped opening in contour space)
 // X-axis = contour distance from center, Y-axis = height
 async function frontCutoutCrossSection(
-  halfExtent: number,
+  halfExtent_R: number,
+  halfExtent_L: number,
   height: number,
   bottom: number,
   bottomOffset: number,
@@ -157,16 +158,16 @@ async function frontCutoutCrossSection(
   const bot = bottom + bottomOffset;
   const top = height;
 
-  // Clamp cutout radius to geometric limits
-  const r = Math.min(cutoutRadius, halfExtent, (top - bot) / 2);
+  // Clamp cutout radius to geometric limits (both sides)
+  const r = Math.min(cutoutRadius, halfExtent_R, halfExtent_L, (top - bot) / 2);
 
   if (r <= 0) {
     // No rounding, simple rectangle — extend past top for clean boolean cut
     const vertices: Vec2[] = [
-      [-halfExtent, bot],
-      [halfExtent, bot],
-      [halfExtent, top + BOOLEAN_OVERSHOOT],
-      [-halfExtent, top + BOOLEAN_OVERSHOOT],
+      [-halfExtent_L, bot],
+      [halfExtent_R, bot],
+      [halfExtent_R, top + BOOLEAN_OVERSHOOT],
+      [-halfExtent_L, top + BOOLEAN_OVERSHOOT],
     ];
     return new CrossSection(vertices);
   }
@@ -177,7 +178,7 @@ async function frontCutoutCrossSection(
 
   // Bottom-left rounded corner (arc from PI to 3PI/2) — curves inward
   vertices.push(...generateArc({
-    center: [-halfExtent + r, bot + r],
+    center: [-halfExtent_L + r, bot + r],
     radius: r,
     startAngle: Math.PI,
     endAngle: (3 * Math.PI) / 2,
@@ -185,36 +186,36 @@ async function frontCutoutCrossSection(
 
   // Bottom-right rounded corner (arc from 3PI/2 to 2PI) — curves inward
   vertices.push(...generateArc({
-    center: [halfExtent - r, bot + r],
+    center: [halfExtent_R - r, bot + r],
     radius: r,
     startAngle: (3 * Math.PI) / 2,
     endAngle: 2 * Math.PI,
   }));
 
   if (topR > 0) {
-    // Top-right concave fillet: center (hE+topR, top-topR), from (hE, top-topR) to (hE+topR, top)
+    // Top-right concave fillet
     vertices.push(...generateArc({
-      center: [halfExtent + topR, top - topR],
+      center: [halfExtent_R + topR, top - topR],
       radius: topR,
       startAngle: Math.PI,
       endAngle: Math.PI / 2,
     }));
 
     // Chimney right & left (wider by topR)
-    vertices.push([halfExtent + topR, top + BOOLEAN_OVERSHOOT]);
-    vertices.push([-halfExtent - topR, top + BOOLEAN_OVERSHOOT]);
+    vertices.push([halfExtent_R + topR, top + BOOLEAN_OVERSHOOT]);
+    vertices.push([-halfExtent_L - topR, top + BOOLEAN_OVERSHOOT]);
 
-    // Top-left concave fillet: center (-hE-topR, top-topR), from (-hE-topR, top) to (-hE, top-topR)
+    // Top-left concave fillet
     vertices.push(...generateArc({
-      center: [-halfExtent - topR, top - topR],
+      center: [-halfExtent_L - topR, top - topR],
       radius: topR,
       startAngle: Math.PI / 2,
       endAngle: 0,
     }));
   } else {
-    // No top rounding — straight chimney at halfExtent
-    vertices.push([halfExtent, top + BOOLEAN_OVERSHOOT]);
-    vertices.push([-halfExtent, top + BOOLEAN_OVERSHOOT]);
+    // No top rounding — straight chimney
+    vertices.push([halfExtent_R, top + BOOLEAN_OVERSHOOT]);
+    vertices.push([-halfExtent_L, top + BOOLEAN_OVERSHOOT]);
   }
 
   return new CrossSection(vertices);
@@ -231,7 +232,8 @@ async function frontCutout(
   openness: number,
   bottomOffset: number,
   cutoutRadius: number,
-  backFlatAllowance: number,
+  backFlatAllowance_R: number,
+  backFlatAllowance_L: number,
 ): Promise<Manifold> {
   // Per-side contour geometry
   // Note: +X = viewer's left due to camera, so x >= 0 side uses frontLeft/backLeft
@@ -254,22 +256,25 @@ async function frontCutout(
   const backArc_L = rBR * Math.PI / 2;
   const maxHalf_L = halfFrontFlat_L + cornerArc_L + sideFlat_L + backArc_L;
 
-  // Use the shorter side so neither overflows
-  const maxHalf = Math.min(maxHalf_R, maxHalf_L);
-  const halfExtent = openness * maxHalf;
-
-  // Compute top fillet radius: clamp so outward arc doesn't exceed contour bounds
+  // Per-side clip limits
+  const clipLimit_R = maxHalf_R + backFlatAllowance_R;
+  const clipLimit_L = maxHalf_L + backFlatAllowance_L;
   const bot = bottom + bottomOffset;
-  const rClamped = Math.min(cutoutRadius, halfExtent, (height - bot) / 2);
-  const topR = Math.min(rClamped, maxHalf + backFlatAllowance - halfExtent);
+  const rClamped = Math.min(cutoutRadius, (height - bot) / 2, clipLimit_R, clipLimit_L);
+  const effectiveMax_R = Math.max(0, clipLimit_R - rClamped);
+  const effectiveMax_L = Math.max(0, clipLimit_L - rClamped);
+  const halfExtent_R = openness * effectiveMax_R;
+  const halfExtent_L = openness * effectiveMax_L;
+  const topR = rClamped;
 
   const cs = await frontCutoutCrossSection(
-    halfExtent,
+    halfExtent_R,
+    halfExtent_L,
     height,
     bottom,
     bottomOffset,
     cutoutRadius,
-    Math.max(0, topR),
+    topR,
   );
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
@@ -282,8 +287,8 @@ async function frontCutout(
   const flatBound_R = halfFrontFlat_R;
   const flatBound_L = halfFrontFlat_L;
   const needsWarp =
-    ((halfExtent + Math.max(0, topR)) > flatBound_R && rFL > 0) ||
-    ((halfExtent + Math.max(0, topR)) > flatBound_L && rFR > 0);
+    ((halfExtent_R + topR) > flatBound_R && rFL > 0) ||
+    ((halfExtent_L + topR) > flatBound_L && rFR > 0);
 
   if (needsWarp) {
     // Refine mesh so the warp has enough vertices for smooth bending
@@ -377,7 +382,8 @@ export type OpenFrontParams = {
   openness: number; // fraction 0.05–1.0
   bottomOffset: number;
   cutoutRadius: number;
-  backFlatAllowance?: number;
+  backFlatAllowance_R?: number;
+  backFlatAllowance_L?: number;
 };
 
 // The box (without clips) with origin in the middle of the bottom face
@@ -418,7 +424,8 @@ export async function base(
       openFront.openness,
       openFront.bottomOffset,
       openFront.cutoutRadius,
-      openFront.backFlatAllowance ?? 0,
+      openFront.backFlatAllowance_R ?? 0,
+      openFront.backFlatAllowance_L ?? 0,
     );
     result = result.subtract(cutout);
   }
@@ -455,11 +462,15 @@ export async function box(
 
   let openFrontAugmented = openFront;
   if (openFront) {
-    const flatBound = width / 2 - Math.max(radii.backLeft, radii.backRight);
-    // 3.05 = clip pair half-width (max X in clipRCrossSection)
-    const outerClipX = N > 0 ? (M / 2) * gw + Math.abs(backFlatCenter) + 3.05 : 0;
-    const backFlatAllowance = Math.max(0, flatBound - outerClipX - 1); // 1mm clearance
-    openFrontAugmented = { ...openFront, backFlatAllowance };
+    // Per-side flat bounds: warp Region 5 maps back-flat X from halfFrontFlat
+    const warpFlatBound_R = width / 2 - radii.frontLeft;
+    const warpFlatBound_L = width / 2 - radii.frontRight;
+    // Per-side clip edges: account for backFlatCenter shift (3.05 = clip pair half-width)
+    const outerClipX_R = N > 0 ? Math.max(0, (M / 2) * gw + backFlatCenter + 3.05) : 0;
+    const outerClipX_L = N > 0 ? Math.max(0, (M / 2) * gw - backFlatCenter + 3.05) : 0;
+    const backFlatAllowance_R = Math.max(0, warpFlatBound_R - outerClipX_R - 1); // 1mm clearance
+    const backFlatAllowance_L = Math.max(0, warpFlatBound_L - outerClipX_L - 1);
+    openFrontAugmented = { ...openFront, backFlatAllowance_R, backFlatAllowance_L };
   }
 
   let res = await base(height, width, depth, radii, wall, bottom, openFrontAugmented);
