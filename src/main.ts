@@ -3,7 +3,7 @@ import "./style.css";
 import * as THREE from "three";
 import { Renderer } from "./rendering/renderer";
 
-import { CLIP_HEIGHT, box, type OpenFrontParams } from "./model/manifold";
+import { CLIP_HEIGHT, box, type OpenFrontParams, type CornerRadii } from "./model/manifold";
 import { mesh2geometry } from "./model/export";
 import { TMFLoader } from "./model/load";
 import { Animate, immediate } from "./animate";
@@ -11,6 +11,8 @@ import { Animate, immediate } from "./animate";
 import { Dyn } from "twrl";
 
 import { rangeControl, stepper, toggleControl, advancedSettings } from "./controls";
+import linkIcon from "./link.svg?raw";
+import unlinkIcon from "./unlink.svg?raw";
 
 /// CONSTANTS
 
@@ -21,7 +23,6 @@ const DIMENSIONS = [
   "height",
   "width",
   "depth",
-  "radius",
   "wall",
   "bottom",
 ] as const;
@@ -47,7 +48,6 @@ const MIN_DEPTH = 20;
 const MAX_DEPTH = 204; /* somewhat arbitrary */
 
 const MIN_RADIUS = 0;
-const MAX_RADIUS = 20;
 
 const START_OPEN_FRONT_OPENNESS = 50; // percentage
 const MIN_OPEN_FRONT_OPENNESS = 5;
@@ -72,10 +72,17 @@ const modelDimensions = {
   height: levels.map((x) => x * CLIP_HEIGHT + (x - 1) * (40 - CLIP_HEIGHT)),
   width: new Dyn(START_WIDTH),
   depth: new Dyn(START_DEPTH),
-  radius: new Dyn(START_RADIUS),
   wall: new Dyn(START_WALL),
   bottom: new Dyn(START_BOTTOM),
 };
+
+const cornerRadii = {
+  frontLeft: new Dyn(START_RADIUS),
+  frontRight: new Dyn(START_RADIUS),
+  backLeft: new Dyn(START_RADIUS),
+  backRight: new Dyn(START_RADIUS),
+};
+const radiusLinked = new Dyn(true);
 
 const innerWidth = Dyn.sequence([
   modelDimensions.wall,
@@ -107,16 +114,23 @@ const maxBottomOffset = Dyn.sequence([
 const maxCutoutRadius = Dyn.sequence([
   modelDimensions.width,
   modelDimensions.depth,
-  modelDimensions.radius,
+  cornerRadii.frontLeft,
+  cornerRadii.frontRight,
+  cornerRadii.backLeft,
+  cornerRadii.backRight,
   modelDimensions.height,
   modelDimensions.bottom,
   openFrontDimensions.openness,
   openFrontDimensions.bottomOffset,
-] as const).map(([width, depth, radius, height, bottom, openness, botOff]) => {
-  const halfFrontFlat = width / 2 - radius;
-  const cornerArc = radius * Math.PI / 2;
-  const sideFlat = depth - 2 * radius;
-  const maxHalf = halfFrontFlat + cornerArc + sideFlat + cornerArc;
+] as const).map(([width, depth, rFL, rFR, rBL, rBR, height, bottom, openness, botOff]) => {
+  // Conservative: use max front/back radii for contour computation
+  const frontR = Math.max(rFL, rFR);
+  const backR = Math.max(rBL, rBR);
+  const halfFrontFlat = width / 2 - frontR;
+  const cornerArc_front = frontR * Math.PI / 2;
+  const sideFlat = depth - frontR - backR;
+  const cornerArc_back = backR * Math.PI / 2;
+  const maxHalf = halfFrontFlat + cornerArc_front + sideFlat + cornerArc_back;
   const halfExtent = (openness / 100) * maxHalf;
   return Math.floor(Math.min(halfExtent, (height - bottom - botOff) / 2)) - 1;
 });
@@ -129,6 +143,21 @@ maxBottomOffset.addListener((max) => {
 maxCutoutRadius.addListener((max) => {
   if (openFrontDimensions.cutoutRadius.latest > max)
     openFrontDimensions.cutoutRadius.send(Math.max(MIN_OPEN_FRONT_RADIUS, max));
+});
+
+// Dynamic max radius: half of depth
+const maxRadius = modelDimensions.depth.map((d) => Math.floor(d / 2));
+
+// Clamp corner radii when max shrinks
+maxRadius.addListener((max) => {
+  if (cornerRadii.frontLeft.latest > max)
+    cornerRadii.frontLeft.send(Math.max(MIN_RADIUS, max));
+  if (cornerRadii.frontRight.latest > max)
+    cornerRadii.frontRight.send(Math.max(MIN_RADIUS, max));
+  if (cornerRadii.backLeft.latest > max)
+    cornerRadii.backLeft.send(Math.max(MIN_RADIUS, max));
+  if (cornerRadii.backRight.latest > max)
+    cornerRadii.backRight.send(Math.max(MIN_RADIUS, max));
 });
 
 // Derived: produces OpenFrontParams or undefined
@@ -174,13 +203,13 @@ async function reloadModel(
   height: number,
   width: number,
   depth: number,
-  radius: number,
+  radii: CornerRadii,
   wall: number,
   bottom: number,
   openFront?: OpenFrontParams,
   cornerClips?: boolean,
 ) {
-  const model = await box(height, width, depth, radius, wall, bottom, openFront, cornerClips);
+  const model = await box(height, width, depth, radii, wall, bottom, openFront, cornerClips);
   const geometry = mesh2geometry(model);
   geometry.computeVertexNormals(); // Make sure the geometry has normals
   mesh.geometry = geometry;
@@ -192,15 +221,19 @@ Dyn.sequence([
   modelDimensions.height,
   modelDimensions.width,
   modelDimensions.depth,
-  modelDimensions.radius,
+  cornerRadii.frontLeft,
+  cornerRadii.frontRight,
+  cornerRadii.backLeft,
+  cornerRadii.backRight,
   modelDimensions.wall,
   modelDimensions.bottom,
   openFrontConfig,
   cornerClipsOnly,
-] as const).addListener(([h, w, d, r, wa, bo, of, cc]) => {
+] as const).addListener(([h, w, d, rFL, rFR, rBL, rBR, wa, bo, of, cc]) => {
   const suffix = of ? "-open" : "";
   const filename = `skapa-${w}-${d}-${h}${suffix}.3mf`;
-  tmfLoader.load(box(h, w, d, r, wa, bo, of, cc), filename);
+  const radii: CornerRadii = { frontLeft: rFL, frontRight: rFR, backLeft: rBL, backRight: rBR };
+  tmfLoader.load(box(h, w, d, radii, wa, bo, of, cc), filename);
 });
 
 /// RENDER
@@ -263,7 +296,6 @@ const animations = {
   height: new Animate(START_HEIGHT),
   width: new Animate(START_WIDTH),
   depth: new Animate(START_DEPTH),
-  radius: new Animate(START_RADIUS),
   wall: new Animate(START_WALL),
   bottom: new Animate(START_BOTTOM),
 };
@@ -271,6 +303,20 @@ const animations = {
 DIMENSIONS.forEach((dim) =>
   modelDimensions[dim].addListener((val) => {
     animations[dim].startAnimationTo(val);
+  }),
+);
+
+// Corner radii animations
+const cornerRadiiAnimations = {
+  frontLeft: new Animate(START_RADIUS),
+  frontRight: new Animate(START_RADIUS),
+  backLeft: new Animate(START_RADIUS),
+  backRight: new Animate(START_RADIUS),
+};
+
+(["frontLeft", "frontRight", "backLeft", "backRight"] as const).forEach((key) =>
+  cornerRadii[key].addListener((val) => {
+    cornerRadiiAnimations[key].startAnimationTo(val);
   }),
 );
 
@@ -342,14 +388,112 @@ advanced.button.addEventListener("click", () => {
 });
 
 // Corner radius slider (inside advanced settings)
+const initialMaxRadius = maxRadius.latest;
 const radiusControl = rangeControl("radius", {
   name: "Radius",
   min: String(MIN_RADIUS),
-  max: String(MAX_RADIUS),
+  max: String(initialMaxRadius),
   sliderMin: String(MIN_RADIUS),
-  sliderMax: String(MAX_RADIUS),
+  sliderMax: String(initialMaxRadius),
 });
 advanced.content.append(radiusControl.wrapper);
+
+// Inline link/unlink button in the radius row, before the label
+const radiusLinkButton = document.createElement("button");
+radiusLinkButton.type = "button";
+radiusLinkButton.className = "radius-link-button";
+radiusLinkButton.innerHTML = linkIcon;
+radiusLinkButton.setAttribute("aria-label", "Unlink corner radii");
+// Insert before the label: wrapper children are [label, range, valueDiv]
+radiusControl.wrapper.insertBefore(radiusLinkButton, radiusControl.wrapper.children[0]);
+// Reference to the value div (label's next sibling after range)
+const radiusValueDiv = radiusControl.wrapper.querySelector(".range-input-value") as HTMLElement;
+
+// Corner radius sub-controls container
+const cornerRadiusSubControls = document.createElement("div");
+cornerRadiusSubControls.className = "corner-radius-sub-controls";
+cornerRadiusSubControls.style.display = "none";
+advanced.content.append(cornerRadiusSubControls);
+
+const cornerRadiusFLControl = rangeControl("corner-radius-fl", {
+  name: "Front left",
+  min: String(MIN_RADIUS),
+  max: String(initialMaxRadius),
+  sliderMin: String(MIN_RADIUS),
+  sliderMax: String(initialMaxRadius),
+});
+cornerRadiusSubControls.append(cornerRadiusFLControl.wrapper);
+
+const cornerRadiusFRControl = rangeControl("corner-radius-fr", {
+  name: "Front right",
+  min: String(MIN_RADIUS),
+  max: String(initialMaxRadius),
+  sliderMin: String(MIN_RADIUS),
+  sliderMax: String(initialMaxRadius),
+});
+cornerRadiusSubControls.append(cornerRadiusFRControl.wrapper);
+
+const cornerRadiusBLControl = rangeControl("corner-radius-bl", {
+  name: "Back left",
+  min: String(MIN_RADIUS),
+  max: String(initialMaxRadius),
+  sliderMin: String(MIN_RADIUS),
+  sliderMax: String(initialMaxRadius),
+});
+cornerRadiusSubControls.append(cornerRadiusBLControl.wrapper);
+
+const cornerRadiusBRControl = rangeControl("corner-radius-br", {
+  name: "Back right",
+  min: String(MIN_RADIUS),
+  max: String(initialMaxRadius),
+  sliderMin: String(MIN_RADIUS),
+  sliderMax: String(initialMaxRadius),
+});
+cornerRadiusSubControls.append(cornerRadiusBRControl.wrapper);
+
+// Wire link/unlink button
+radiusLinkButton.addEventListener("click", () => {
+  const wasLinked = radiusLinked.latest;
+  radiusLinked.send(!wasLinked);
+
+  // Update icon and aria label
+  radiusLinkButton.innerHTML = wasLinked ? unlinkIcon : linkIcon;
+  radiusLinkButton.setAttribute("aria-label",
+    wasLinked ? "Link corner radii" : "Unlink corner radii");
+
+  // When unlinked: hide slider and value, show sub-controls
+  radiusControl.range.style.display = wasLinked ? "none" : "";
+  radiusValueDiv.style.display = wasLinked ? "none" : "";
+  cornerRadiusSubControls.style.display = wasLinked ? "" : "none";
+
+  if (!wasLinked) {
+    // Re-linking: set main radius to average of 4 current values
+    const avg = Math.round(
+      (cornerRadii.frontLeft.latest +
+        cornerRadii.frontRight.latest +
+        cornerRadii.backLeft.latest +
+        cornerRadii.backRight.latest) / 4
+    );
+    mainRadiusDyn.send(avg);
+  }
+});
+
+bindRangeControl(cornerRadiusFLControl, cornerRadii.frontLeft, {
+  min: MIN_RADIUS,
+  max: maxRadius,
+});
+bindRangeControl(cornerRadiusFRControl, cornerRadii.frontRight, {
+  min: MIN_RADIUS,
+  max: maxRadius,
+});
+bindRangeControl(cornerRadiusBLControl, cornerRadii.backLeft, {
+  min: MIN_RADIUS,
+  max: maxRadius,
+});
+bindRangeControl(cornerRadiusBRControl, cornerRadii.backRight, {
+  min: MIN_RADIUS,
+  max: maxRadius,
+});
 
 // Corner clips toggle (inside advanced settings)
 const cornerClipsToggle = toggleControl("corner-clips", { label: "Corner clips only" });
@@ -417,6 +561,10 @@ const inputs = {
   width: widthControl.input,
   depth: depthControl.input,
   radius: radiusControl.input,
+  cornerRadiusFL: cornerRadiusFLControl.input,
+  cornerRadiusFR: cornerRadiusFRControl.input,
+  cornerRadiusBL: cornerRadiusBLControl.input,
+  cornerRadiusBR: cornerRadiusBRControl.input,
   openFrontOpenness: openFrontOpennessControl.input,
   openFrontBottomOffset: openFrontBottomOffsetControl.input,
   openFrontRadius: openFrontRadiusControl.input,
@@ -508,9 +656,20 @@ bindRangeControl(depthControl, modelDimensions.depth, {
   fromInput: (val) => val + 2 * modelDimensions.wall.latest,
 });
 
-bindRangeControl(radiusControl, modelDimensions.radius, {
+// Main radius control: when linked, send to all 4 corners
+const mainRadiusDyn = new Dyn(START_RADIUS);
+mainRadiusDyn.addListener((val) => {
+  if (radiusLinked.latest) {
+    cornerRadii.frontLeft.send(val);
+    cornerRadii.frontRight.send(val);
+    cornerRadii.backLeft.send(val);
+    cornerRadii.backRight.send(val);
+  }
+});
+
+bindRangeControl(radiusControl, mainRadiusDyn, {
   min: MIN_RADIUS,
-  max: MAX_RADIUS,
+  max: maxRadius,
 });
 
 bindRangeControl(openFrontOpennessControl, openFrontDimensions.openness, {
@@ -529,7 +688,7 @@ bindRangeControl(openFrontRadiusControl, openFrontDimensions.cutoutRadius, {
 });
 
 // Add select-all on input click
-(["levels", "width", "depth", "radius", "openFrontOpenness", "openFrontBottomOffset", "openFrontRadius"] as const).forEach((dim) => {
+(["levels", "width", "depth", "radius", "cornerRadiusFL", "cornerRadiusFR", "cornerRadiusBL", "cornerRadiusBR", "openFrontOpenness", "openFrontBottomOffset", "openFrontRadius"] as const).forEach((dim) => {
   const input = inputs[dim];
   input.addEventListener("focus", () => {
     input.select();
@@ -710,11 +869,17 @@ function loop(nowMillis: DOMHighResTimeStamp) {
     openFrontAnimations.bottomOffset.update() ||
     openFrontAnimations.cutoutRadius.update();
 
+  const cornerRadiiAnimUpdated =
+    cornerRadiiAnimations.frontLeft.update() ||
+    cornerRadiiAnimations.frontRight.update() ||
+    cornerRadiiAnimations.backLeft.update() ||
+    cornerRadiiAnimations.backRight.update();
+
   const dimensionsUpdated =
     DIMENSIONS.reduce(
       (acc, dim) => animations[dim].update() || acc,
       false,
-    ) || openFrontAnimUpdated;
+    ) || openFrontAnimUpdated || cornerRadiiAnimUpdated;
 
   if (dimensionsUpdated) {
     reloadModelNeeded = true;
@@ -734,7 +899,12 @@ function loop(nowMillis: DOMHighResTimeStamp) {
       animations["height"].current,
       animations["width"].current,
       animations["depth"].current,
-      animations["radius"].current,
+      {
+        frontLeft: cornerRadiiAnimations.frontLeft.current,
+        frontRight: cornerRadiiAnimations.frontRight.current,
+        backLeft: cornerRadiiAnimations.backLeft.current,
+        backRight: cornerRadiiAnimations.backRight.current,
+      },
       animations["wall"].current,
       animations["bottom"].current,
       openFrontEnabled.latest

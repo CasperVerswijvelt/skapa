@@ -110,7 +110,6 @@ canvas {
 
 #panel {
   display: flex;
-  max-height: 30em;
   flex-direction: column;
   justify-content: space-between;
 }
@@ -426,10 +425,6 @@ footer {
   padding: 0;
 }
 
-.advanced-settings-content {
-  padding-top: 1.5em;
-}
-
 /* Toggle Switch */
 .toggle-input-wrapper {
   display: flex;
@@ -438,9 +433,8 @@ footer {
   justify-content: space-between;
 }
 
-.toggle-input-wrapper + .toggle-input-wrapper,
-.range-input-wrapper + .toggle-input-wrapper,
-.toggle-input-wrapper + .range-input-wrapper {
+.toggle-input-wrapper,
+.range-input-wrapper {
   padding-top: 2em;
 }
 
@@ -483,12 +477,59 @@ footer {
   transform: translateX(1.3em);
 }
 
+/* Radius link/unlink button */
+.radius-link-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  padding-right: 5px;
+  color: #aaa;
+  flex-shrink: 0;
+  position: absolute;
+  transform: translateX(-100%);
+}
+
+.radius-link-button:hover {
+  color: #666;
+}
+
+.radius-link-button svg {
+  stroke-width: 0.15em;
+  height: 1.2em;
+  display: block;
+}
+
+/* Corner radius sub-controls */
+.corner-radius-sub-controls {
+  padding-top: 0.75em;
+  padding-left: 0.75em;
+  border-left: 2px solid #000;
+  margin-left: 0.5em;
+}
+
+.corner-radius-sub-controls .range-input-wrapper + .range-input-wrapper {
+  padding-top: 1em;
+}
+
+.corner-radius-sub-controls .range-input-wrapper {
+  padding-top: 0;
+}
+
+.corner-radius-sub-controls .range-input-wrapper label {
+  white-space: nowrap;
+}
+
 /* Open front sub-controls */
 .open-front-sub-controls {
   padding-top: 0.75em;
   padding-left: 0.75em;
   border-left: 2px solid #000;
   margin-left: 0.5em;
+}
+
+.open-front-sub-controls .range-input-wrapper {
+  padding-top: 0;
 }
 
 .open-front-sub-controls .range-input-wrapper + .range-input-wrapper {

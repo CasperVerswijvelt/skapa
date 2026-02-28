@@ -1,0 +1,13 @@
+<svg
+  stroke="currentColor"
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 128 128"
+  role="graphics-symbol"
+  aria-hidden="true"
+  >
+  <path
+    vector-effect="non-scaling-stroke"
+    d="M60 40l8-8a16 16 0 0 1 22.6 0l5.4 5.4A16 16 0 0 1 96 60l-8 8M68 88l-8 8a16 16 0 0 1-22.6 0L32 90.6A16 16 0 0 1 32 68l8-8M40 88L88 40"
+    fill="none"
+  />
+</svg>
