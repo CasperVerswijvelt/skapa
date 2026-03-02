@@ -10,6 +10,7 @@ export const rangeControl = (
     sliderMin: string;
     sliderMax: string;
     unit?: string;
+    step?: string;
   },
 ): {
   wrapper: HTMLElement;
@@ -36,6 +37,11 @@ export const rangeControl = (
       aria-label={opts.name}
     />
   ) as HTMLInputElement;
+
+  if (opts.step) {
+    range.step = opts.step;
+    input.step = opts.step;
+  }
 
   const valueDiv = (<div className="range-input-value">{input}</div>) as HTMLDivElement;
   if (opts.unit) valueDiv.dataset.unit = opts.unit;
