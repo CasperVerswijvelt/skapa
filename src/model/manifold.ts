@@ -247,14 +247,14 @@ async function frontCutout(
   const cornerArc_R = rFL * Math.PI / 2;
   const sideFlat_R = depth - rFL - rBL;
   const backArc_R = rBL * Math.PI / 2;
-  const maxHalf_R = halfFrontFlat_R + cornerArc_R + sideFlat_R + backArc_R;
+  const maxHalf_R = halfFrontFlat_R + cornerArc_R + Math.abs(sideFlat_R) + backArc_R;
 
   // Left side in geometry (x < 0) = viewer's right
   const halfFrontFlat_L = width / 2 - rFR;
   const cornerArc_L = rFR * Math.PI / 2;
   const sideFlat_L = depth - rFR - rBR;
   const backArc_L = rBR * Math.PI / 2;
-  const maxHalf_L = halfFrontFlat_L + cornerArc_L + sideFlat_L + backArc_L;
+  const maxHalf_L = halfFrontFlat_L + cornerArc_L + Math.abs(sideFlat_L) + backArc_L;
 
   // Per-side clip limits
   const clipLimit_R = maxHalf_R + backFlatAllowance_R;
@@ -345,33 +345,43 @@ async function frontCutout(
         return;
       }
 
-      const sideEnd = arcEnd + params.sideFlat;
+      const sideEnd = arcEnd + Math.abs(params.sideFlat);
 
       // Region 3: Side flat — linear remap
+      // When sideFlat < 0, corner centers are inverted so the side-face
+      // path goes in the reverse direction (toward the front before
+      // reaching the back corner center).
       if (absX <= sideEnd) {
         const d = absX - arcEnd;
         const rLocal = y - params.cornerCY;
         v[0] = sign * (params.flatBound + rLocal);
-        v[1] = params.cornerCY - d;
+        v[1] = params.sideFlat >= 0
+          ? params.cornerCY - d
+          : params.cornerCY + d;
         return;
       }
 
       const backArcEnd = sideEnd + params.backArc;
 
       // Region 4: Back corner arc — cylindrical bend around back corner center
+      // Correct for different front/back radii: orbit radius and center must use backR
       if (absX <= backArcEnd && params.backR > 0) {
         const thetaBack = (absX - sideEnd) / params.backR;
         const rLocal = y - params.cornerCY;
-        v[0] = sign * (params.flatBound + rLocal * Math.cos(thetaBack));
-        v[1] = params.backCornerCY - rLocal * Math.sin(thetaBack);
+        const rLocalBack = rLocal + (params.backR - params.frontR);
+        const backCenterX = params.flatBound - (params.backR - params.frontR);
+        v[0] = sign * (backCenterX + rLocalBack * Math.cos(thetaBack));
+        v[1] = params.backCornerCY - rLocalBack * Math.sin(thetaBack);
         return;
       }
 
       // Region 5: Back flat wall — linear remap along back wall
       const dBack = absX - backArcEnd;
       const rLocal = y - params.cornerCY;
-      v[0] = sign * (params.flatBound - dBack);
-      v[1] = params.backCornerCY - rLocal;
+      const rLocalBack = rLocal + (params.backR - params.frontR);
+      const backCenterX = params.flatBound - (params.backR - params.frontR);
+      v[0] = sign * (backCenterX - dBack);
+      v[1] = params.backCornerCY - rLocalBack;
     });
   }
 
@@ -463,8 +473,8 @@ export async function box(
   let openFrontAugmented = openFront;
   if (openFront) {
     // Per-side flat bounds: warp Region 5 maps back-flat X from halfFrontFlat
-    const warpFlatBound_R = width / 2 - radii.frontLeft;
-    const warpFlatBound_L = width / 2 - radii.frontRight;
+    const warpFlatBound_R = width / 2 - radii.backLeft;
+    const warpFlatBound_L = width / 2 - radii.backRight;
     // Per-side clip edges: account for backFlatCenter shift (2.45 = clip wall-surface footprint)
     const outerClipX_R = N > 0 ? Math.max(0, (M / 2) * gw + backFlatCenter + 2.45) : 0;
     const outerClipX_L = N > 0 ? Math.max(0, (M / 2) * gw - backFlatCenter + 2.45) : 0;
