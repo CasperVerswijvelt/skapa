@@ -235,12 +235,22 @@ async function frontCutout(
   backFlatAllowance_R: number,
   backFlatAllowance_L: number,
 ): Promise<Manifold> {
-  // Per-side contour geometry
-  // Note: +X = viewer's left due to camera, so x >= 0 side uses frontLeft/backLeft
-  const rFL = radii.frontLeft;
-  const rBL = radii.backLeft;
-  const rFR = radii.frontRight;
-  const rBR = radii.backRight;
+  // Apply minimum effective radius so ALL downstream calculations (contour distances,
+  // cross-section, extent limits, AND warp) use the same coordinate space.
+  // When corner radius < wall + overshoot, inner-wall vertices would end up at or
+  // past the corner center, causing degenerate mesh geometry. Since the cutout is a
+  // boolean subtraction, using a slightly larger radius just makes it overshoot at
+  // corners — the CSG result is identical.
+  const warpMinR = wall + BOOLEAN_OVERSHOOT;
+  const rFL = Math.max(radii.frontLeft, warpMinR);
+  const rBL = Math.max(radii.backLeft, warpMinR);
+  const rFR = Math.max(radii.frontRight, warpMinR);
+  const rBR = Math.max(radii.backRight, warpMinR);
+
+  // Extra outward overshoot so the inflated-radius arc covers the actual box
+  // corner at the diagonal (worst case). The gap is (√2−1)·(warpMinR − actualR).
+  const extraOvershoot = (Math.SQRT2 - 1) *
+    Math.max(0, warpMinR - Math.min(radii.frontLeft, radii.backLeft, radii.frontRight, radii.backRight));
 
   // Right side in geometry (x >= 0) = viewer's left
   const halfFrontFlat_R = width / 2 - rFL;
@@ -279,9 +289,9 @@ async function frontCutout(
 
   // Extrude along Z, then rotate so it goes along -Y (into the front wall)
   let cutout = cs
-    .extrude(wall + 2 * BOOLEAN_OVERSHOOT)
+    .extrude(wall + 2 * BOOLEAN_OVERSHOOT + extraOvershoot)
     .rotate([90, 0, 0])
-    .translate([0, depth / 2 + BOOLEAN_OVERSHOOT, 0]);
+    .translate([0, depth / 2 + BOOLEAN_OVERSHOOT + extraOvershoot, 0]);
 
   // Check if warp is needed for either side
   const flatBound_R = halfFrontFlat_R;
