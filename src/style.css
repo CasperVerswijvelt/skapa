@@ -336,7 +336,7 @@ footer {
   align-items: center;
 }
 
-/* "mm" (default unit) */
+/* "mm" */
 .range-input-value::after {
   content: "mm";
 }
@@ -500,43 +500,23 @@ footer {
   display: block;
 }
 
-/* Corner radius sub-controls */
-.corner-radius-sub-controls {
+/* Sub-controls (shared by corner-radius and open-front) */
+.sub-controls {
   padding-top: 0.75em;
   padding-left: 0.75em;
   border-left: 2px solid #000;
   margin-left: 0.5em;
 }
 
-.corner-radius-sub-controls .range-input-wrapper + .range-input-wrapper {
-  padding-top: 1em;
-}
-
-.corner-radius-sub-controls .range-input-wrapper {
+.sub-controls .range-input-wrapper {
   padding-top: 0;
 }
 
-.corner-radius-sub-controls .range-input-wrapper label {
-  white-space: nowrap;
-}
-
-/* Open front sub-controls */
-.open-front-sub-controls {
-  padding-top: 0.75em;
-  padding-left: 0.75em;
-  border-left: 2px solid #000;
-  margin-left: 0.5em;
-}
-
-.open-front-sub-controls .range-input-wrapper {
-  padding-top: 0;
-}
-
-.open-front-sub-controls .range-input-wrapper + .range-input-wrapper {
+.sub-controls .range-input-wrapper + .range-input-wrapper {
   padding-top: 1em;
 }
 
-.open-front-sub-controls .range-input-wrapper label {
+.sub-controls .range-input-wrapper label {
   white-space: nowrap;
 }
 

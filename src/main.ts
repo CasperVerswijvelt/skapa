@@ -44,11 +44,11 @@ const MIN_LEVELS = 1;
 const MAX_LEVELS = 5;
 
 const START_WIDTH = 80;
-const MIN_WIDTH = 8 + 2 * START_RADIUS;
+const MIN_WIDTH = 10 + 2 * START_RADIUS;
 const MAX_WIDTH = 204; /* somewhat arbitrary */
 
 const START_DEPTH = 60;
-const MIN_DEPTH = 14;
+const MIN_DEPTH = 20;
 const MAX_DEPTH = 204; /* somewhat arbitrary */
 
 const MIN_RADIUS = 0;
@@ -423,7 +423,7 @@ const radiusValueDiv = radiusControl.wrapper.querySelector(
 
 // Corner radius sub-controls container
 const cornerRadiusSubControls = document.createElement("div");
-cornerRadiusSubControls.className = "corner-radius-sub-controls";
+cornerRadiusSubControls.className = "sub-controls corner-radius-sub-controls";
 cornerRadiusSubControls.style.display = "none";
 advanced.content.append(cornerRadiusSubControls);
 
@@ -531,7 +531,7 @@ advanced.content.append(openFrontToggle.wrapper);
 
 // Open front sub-controls container
 const openFrontSubControls = document.createElement("div");
-openFrontSubControls.className = "open-front-sub-controls";
+openFrontSubControls.className = "sub-controls open-front-sub-controls";
 openFrontSubControls.style.display = "none";
 advanced.content.append(openFrontSubControls);
 

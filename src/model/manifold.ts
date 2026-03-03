@@ -38,15 +38,13 @@ function generateArc({
   radius,
   startAngle = 0,
   endAngle = Math.PI / 2,
-  segments = 10,
 }: {
   center: Vec2;
   radius: number;
   startAngle?: number;
   endAngle?: number;
-  segments?: number;
 }): Vec2[] {
-  const nPoints = segments + 2;
+  const nPoints = 12;
   const pts: Vec2[] = [];
   for (let i = 0; i < nPoints; i++) {
     const angle = startAngle + (i * (endAngle - startAngle)) / (nPoints - 1);
